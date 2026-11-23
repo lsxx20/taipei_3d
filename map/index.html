@@ -1173,16 +1173,91 @@ vec3 atmos_apply(vec3 c) {
     }
     return best;
   }
+  // 畫面傾斜時 deck.gl 對遠處用比較粗的層級（z13、z12…），資料只有 z14，所以把粗的展開成它底下的 z14 圖磚，
+  // 只留清單裡有建物的。不展開的話，遠處整片沒有圖磚、上半部就是空的
+  function toZ14(list) {
+    const seen = new Set(), out = [];
+    for (const t of list) {
+      const d = 14 - t.z;
+      if (d < 0) continue;
+      const n = 2 ** d;
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          const x = t.x * n + i, y = t.y * n + j, k = x + '/' + y;
+          if (seen.has(k) || !tileSet.has(k)) continue;
+          seen.add(k);
+          out.push({ x, y, z: 14 });
+        }
+      }
+    }
+    return out;
+  }
   class NearTileset extends deck._Tileset2D {
     getTileIndices(opts) {
       const v = opts.viewport, cam = v.unprojectPosition(v.cameraPosition), c = [v.longitude, v.latitude];
-      return super.getTileIndices(opts).filter(t => t.z !== 14 || tileGap(t, cam, c) < NEAR_M);
+      return toZ14(super.getTileIndices(opts)).filter(t => tileGap(t, cam, c) < NEAR_M);
     }
+  }
+
+  // 遠景：2.5 km 以外到 FAR_M 之間的建物，用簡化過的輪廓和高度（far_tiles.py 做的）畫成一色的量體，
+  // 沒有窗、屋頂、樹、影子，也不能點。跟近處的圖磚剛好接起來：同一塊圖磚只會屬於其中一邊，接縫落在霧裡
+  const FAR_M = 9000;
+  class FarTileset extends deck._Tileset2D {
+    getTileIndices(opts) {
+      const v = opts.viewport, cam = v.unprojectPosition(v.cameraPosition), c = [v.longitude, v.latitude];
+      return toZ14(super.getTileIndices(opts)).filter(t => {
+        const g = tileGap(t, cam, c);
+        return g >= NEAR_M && g < FAR_M;
+      });
+    }
+  }
+  async function loadFarTile(tile) {
+    const { x, y, z } = tile.index;
+    if (z !== 14 || !tileSet.has(x + '/' + y)) return null;
+    pendingTiles++;
+    updateStatus();
+    let fj;
+    try { fj = await getPacked('data/far/' + x + '/' + y + '.json', tile.signal); }
+    catch (e) { if (tile.signal && tile.signal.aborted) return null; throw e; }
+    finally { pendingTiles--; updateStatus(); }
+    if (!fj || !fj.n) return null;
+    const all = [];
+    for (let i = 0; i < fj.n; i++) {
+      const code = fj.l[i] >= 0 ? fj.lu[fj.l[i]] : '';
+      const p = { h: fj.h[i], f: fj.f[i], y: fj.y[i] };
+      const ring = fj.p[i], poly = [];
+      let px = 0, py = 0;
+      for (let k = 0; k < ring.length; k += 2) { px += ring[k]; py += ring[k + 1]; poly.push([px / fj.s, py / fj.s, fj.g[i]]); }
+      all.push({ h: p.h, wall: wallOf(p, code, 0, i).wall, poly: [poly], lm: fj.r[i] || null });
+    }
+    return { all, key: -1, shown: null, hasLm: !!(fj.r && Object.keys(fj.r).length) };
+  }
+  // 地標網格載入後，那棟的簡化量體就不畫（網格自己會畫）。載入的地標數變了才重算
+  function farVisible(T) {
+    const done = landmarks.filter(L => L.parts).map(L => L.id);
+    if (T.key !== done.length) {
+      const set = new Set(done);
+      T.shown = T.hasLm ? T.all.filter(b => !(b.lm && set.has(b.lm))) : T.all;
+      T.key = done.length;
+    }
+    return T.shown;
   }
 
   function layers() {
     const shadowOn = shadowColor[3] > 0, real = mode === 'real';
     const out = [];
+    if (tileSet) {
+      out.push(new TileLayer({
+        id: 'far', data: 'data/far/{z}/{x}/{y}.json', tileSize: 512, maxZoom: 14, zoomOffset: 1, visibleMinZoom: 12.5,
+        maxCacheSize: 24, getTileData: loadFarTile, pickable: false, TilesetClass: FarTileset,
+        renderSubLayers: p => (p.data ? new SolidPolygonLayer({
+          id: p.id + '-far-buildings', data: farVisible(p.data), extruded: true, filled: true, pickable: false,
+          getPolygon: d => d.poly, getElevation: d => d.h, getFillColor: d => (mode === 'real' ? d.wall : heightColor(d.h)),
+          material: BUILDING_MAT, extensions: withAtmos([]), updateTriggers: { getFillColor: mode }
+        }) : null),
+        updateTriggers: { renderSubLayers: renderCount }
+      }));
+    }
     if (tileSet) {
       out.push(new TileLayer({
         // 圖磚只有 z14。zoomOffset 1：畫面 12.5 級以上就拿 z14 的圖磚（round(zoom + 1) ≥ 14）。
@@ -1357,7 +1432,7 @@ vec3 atmos_apply(vec3 c) {
   // 全市的包（format: "gzjson"）是 JSON 裡一串 base64：street_tiles.py 的 pack（「varint 名稱長度、名稱、varint 資料長度、MVT」
   // 一塊接一塊）再 gzip。artifact 不能放 .bin，所以用 base64 包起來。舊的單一區域包是 JSON（名稱 → MVT 的 base64）
   async function unpackBundle(buf) {
-    const raw = new Uint8Array(await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+    const raw = await gunzip(buf);
     const out = new Map(), dec = new TextDecoder();
     let pos = 0;
     const vu = () => { let v = 0, m = 1, b; do { b = raw[pos++]; v += (b & 127) * m; m *= 128; } while (b >= 128); return v; };
@@ -1368,6 +1443,7 @@ vec3 atmos_apply(vec3 c) {
     return out;
   }
   function addStreets(si) {
+    const addLayer = l => map.addLayer(l, map.getLayer('tint') ? 'tint' : undefined);   // 晚才加也要在日落色罩（tint）底下
     const bundles = new Map(), have = new Set(si.bundles.map(b => b[0] + '_' + b[1])), gz = si.format === 'gzjson';
     const load = k => getJSON('data/streets/' + k + '.json')
       .then(j => gz ? unpackBundle(b64bytes(j.data)) : new Map(Object.entries(j).map(([key, b64]) => [key, b64bytes(b64)])))
@@ -1410,7 +1486,7 @@ vec3 atmos_apply(vec3 c) {
     grain('st-new', [80, 83, 87], 5, 3, 37);            // 近兩三年重鋪：比較黑
     grain('st-side', [188, 183, 174], 7, 6, 51);        // 人行道鋪面
     grain('st-median', [126, 145, 102], 9, 10, 71);     // 分隔島的草和灌木
-    const surf = (id, kind, pattern) => map.addLayer({ id, type: 'fill', source: 'streets', 'source-layer': 'surface',
+    const surf = (id, kind, pattern) => addLayer({ id, type: 'fill', source: 'streets', 'source-layer': 'surface',
       minzoom: 15, filter: ['==', ['get', 'kind'], kind], paint: { 'fill-pattern': pattern } });
     surf('st-carriage', 'carriage', ['case', ['>=', ['get', 'year'], 2023], 'st-new', ['>=', ['get', 'year'], 2021], 'st-mid', 'st-old']);
     surf('st-median', 'median', 'st-median');
@@ -1425,13 +1501,13 @@ vec3 atmos_apply(vec3 c) {
     surf('st-lawn', 'lawn', 'st-lawn');
     surf('st-garden', 'garden', 'st-garden');
     surf('st-path', 'path', 'st-path');
-    map.addLayer({ id: 'st-water', type: 'fill', source: 'streets', 'source-layer': 'surface', minzoom: 15,
+    addLayer({ id: 'st-water', type: 'fill', source: 'streets', 'source-layer': 'surface', minzoom: 15,
                    filter: ['==', ['get', 'kind'], 'water'], paint: { 'fill-color': '#5b7a80' } });
     // 運動場（跑道、球場）：每一塊的顏色是 site_surfaces.py 從正射影像量的（color 欄位）
-    map.addLayer({ id: 'st-sport', type: 'fill', source: 'streets', 'source-layer': 'surface', minzoom: 15,
+    addLayer({ id: 'st-sport', type: 'fill', source: 'streets', 'source-layer': 'surface', minzoom: 15,
                    filter: ['==', ['get', 'kind'], 'sport'], paint: { 'fill-color': ['to-color', ['get', 'color'], '#849689'] } });
     // 人行道上的樹穴、花圃、人孔蓋（臺北市人行道固定設施物）
-    map.addLayer({ id: 'st-items', type: 'fill', source: 'streets', 'source-layer': 'surface', minzoom: 16,
+    addLayer({ id: 'st-items', type: 'fill', source: 'streets', 'source-layer': 'surface', minzoom: 16,
                    filter: ['in', ['get', 'kind'], ['literal', ['treepit', 'planter', 'manhole']]],
                    paint: { 'fill-color': ['match', ['get', 'kind'], 'treepit', '#5f5448', 'planter', '#7b9a5e', '#77736d'] } });
     // 標線的寬度照實際公尺數換成像素：512 像素的圖磚在北緯 25° 時，z 級一像素約 70915 / 2^z 公尺
@@ -1439,7 +1515,7 @@ vec3 atmos_apply(vec3 c) {
     // 緣石邊先畫：暗的一條（水溝蓋和緣石的陰影）、亮的一條（緣石頂面），再畫白線、黃線
     for (const [id, color, rgb, op] of [['st-gutter', 'gutter', '#33363a', 0.32], ['st-curb', 'curb', '#d4d2cc', 1],
                                          ['st-mark-white', 'white', '#f1f0ea', 0.92], ['st-mark-yellow', 'yellow', '#e9b631', 0.92]]) {
-      map.addLayer({ id, type: 'line', source: 'streets', 'source-layer': 'marking', minzoom: 16, filter: ['==', ['get', 'color'], color],
+      addLayer({ id, type: 'line', source: 'streets', 'source-layer': 'marking', minzoom: 16, filter: ['==', ['get', 'color'], color],
                      layout: { 'line-cap': 'butt', 'line-join': 'miter' }, paint: { 'line-color': rgb, 'line-width': px, 'line-opacity': op } });
     }
   }
@@ -1450,6 +1526,15 @@ vec3 atmos_apply(vec3 c) {
     if (!r.ok) throw new Error(url + '：' + r.status);
     return r.json();
   }
+  // 打包過的 JSON 是 {"data": base64(gzip(JSON))}：檔案小很多，不管主機有沒有壓縮傳輸都一樣。沒打包的原樣回傳
+  async function gunzip(buf) {
+    return new Uint8Array(await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+  }
+  async function getPacked(url, signal) {
+    const j = await getJSON(url, signal);
+    const packed = j && typeof j.data === 'string' && Object.keys(j).length === 1;
+    return packed ? JSON.parse(new TextDecoder().decode(await gunzip(b64bytes(j.data)))) : j;
+  }
   function decodeRing(a) {
     const out = new Array(a.length / 2);
     let x = 0, y = 0;
@@ -1457,6 +1542,20 @@ vec3 atmos_apply(vec3 c) {
     return out;
   }
 
+  // 一棟建物的牆色、外觀、層高。近處和遠景的建物都用這一個，遠景只取 wall
+  function wallOf(p, code, baseM, i) {
+    // 牆色都一樣，每棟亮度差一點點，看起來才不會是同一塊塑膠
+    const v = 0.94 + 0.08 * jitter(i + 1);
+    let wall = SCENE.wall.map(c => Math.min(255, Math.round(c * v)));
+    let storey = p.f ? (p.h - baseM) / p.f : 0;
+    let look = 0, seed = 255;
+    if (FX.has('bld')) {
+      const k = buildingLook(p, code, baseM, i);
+      wall = k.wall; look = k.look; seed = k.seed;
+      if (!storey && p.h - baseM > 4) storey = (p.h - baseM) / Math.max(1, Math.round((p.h - baseM) / 3.2));
+    }
+    return { wall, look, seed, storey };
+  }
   // 一塊圖磚的建物 → out。replaced：被地標網格取代的 OSM 編號和使照號碼，這些量體不畫
   function prepBuildings(bj, out, roofs) {
     const bld = FX.has('bld');
@@ -1464,16 +1563,7 @@ vec3 atmos_apply(vec3 c) {
       if (replaced.has(p.o) || replaced.has(p.u)) return;
       const baseM = p.b || 0, ground = p.g || 0;
       const code = p.l !== undefined ? bj.lu[p.l] : '';
-      // 牆色都一樣，每棟亮度差一點點，看起來才不會是同一塊塑膠
-      const v = 0.94 + 0.08 * jitter(i + 1);
-      let wall = SCENE.wall.map(c => Math.min(255, Math.round(c * v)));
-      let storey = p.f ? (p.h - baseM) / p.f : 0;
-      let look = 0, seed = 255;
-      if (bld) {
-        const k = buildingLook(p, code, baseM, i);
-        wall = k.wall; look = k.look; seed = k.seed;
-        if (!storey && p.h - baseM > 4) storey = (p.h - baseM) / Math.max(1, Math.round((p.h - baseM) / 3.2));
-      }
+      const { wall, look, seed, storey } = wallOf(p, code, baseM, i);
       const st = Math.min(255, Math.round(storey * 10));
       for (const rings of bj.g[i]) {
         const poly = rings.map(r => decodeRing(r).map(c => [c[0], c[1], ground + baseM]));
@@ -1869,7 +1959,23 @@ vec3 atmos_apply(vec3 c) {
   // 畫面傾斜很大時，deck.gl 會用比較粗的層級去拿遠處的圖磚，資料只有 z14，那些也不下載（遠處本來就在霧裡）。
   // pendingTiles：正在下載的塊數，檢查用的程式等它歸零再截圖
   let pendingTiles = 0, prepMs = 0;
-  window.__pendingTiles = () => pendingTiles;
+  // 街道細節（路面、標線、街道設施）佔第一次下載的一半以上，晚一點再載：先讓建物出現，等第一批圖磚載完（最多 8 秒）才開始。
+  // 檢查用的程式等 __pendingTiles 歸零再截圖，所以街道還沒開始載的時候也算一個
+  let streetsWait = false;
+  function scheduleStreets(si) {
+    if (!si || !si.bundles) return;
+    streetsWait = true;
+    let saw = false;
+    const t0 = performance.now(), iv = setInterval(() => {
+      if (pendingTiles > 0) saw = true;
+      if ((saw && pendingTiles === 0) || performance.now() - t0 > 8000) {
+        clearInterval(iv);
+        addStreets(si);
+        streetsWait = false;
+      }
+    }, 250);
+  }
+  window.__pendingTiles = () => pendingTiles + (streetsWait ? 1 : 0);
   window.__prepMs = () => Math.round(prepMs);       // 圖磚下載後整理資料花的時間（檢查效能用）
   let extraTrees = {};
   async function loadTile(tile) {
@@ -1878,7 +1984,7 @@ vec3 atmos_apply(vec3 c) {
     pendingTiles++;
     updateStatus();
     try {
-      const tj = await getJSON('data/tiles/' + z + '/' + x + '/' + y + '.json', tile.signal);
+      const tj = await getPacked('data/tiles/' + z + '/' + x + '/' + y + '.json', tile.signal);
       const T = { buildings: [], treeGroups: {}, trunks: [], bridgeParts: [], bridgeMarks: [], roofParts: [] };
       const t0 = performance.now();
       prepBuildings(tj.b, T.buildings, T.roofParts);
@@ -1941,7 +2047,7 @@ vec3 atmos_apply(vec3 c) {
     map.addLayer({ id: 'crossings', type: 'line', source: 'ground', 'source-layer': 'crossings', minzoom: 15,
                    paint: { 'line-color': SCENE.crossing, 'line-width': roadWidth(4), 'line-dasharray': [0.12, 0.14] },
                    layout: { 'line-cap': 'butt' } });
-    if (si && si.bundles) addStreets(si);
+    scheduleStreets(si);
     map.addSource('tint', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'Polygon',
       coordinates: [[[121.2, 24.6], [122.05, 24.6], [122.05, 25.35], [121.2, 25.35], [121.2, 24.6]]] } } });
     map.addLayer({ id: 'tint', type: 'fill', source: 'tint', paint: { 'fill-color': '#ff9a52', 'fill-opacity': 0,
