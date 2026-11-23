@@ -5,7 +5,7 @@
 - 成果整理：https://lsxx20.github.io/taipei_3d/
 - 3D 臺北：https://lsxx20.github.io/taipei_3d/map/
 
-`index.html` 和 `img/` 是成果整理頁；`map/` 是 3D 網頁（v46），資料都在 `map/data/`，網頁載入時才讀。
+`index.html` 和 `img/` 是成果整理頁；`map/` 是 3D 網頁（v49），資料都在 `map/data/`，網頁載入時才讀。
 地圖用 MapLibre GL JS 4.7.1 和 deck.gl 9.3.12，從 jsDelivr 載入。打開一次大約要下載 40 MB。
 
 ## 資料來源與授權
