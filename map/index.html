@@ -1,0 +1,2072 @@
+<title>3D-Taipei</title>
+<style>
+/* 滿版 3D 地圖；左上一塊面板放時間、模式和點選資訊，可以整塊滑到畫面邊外，只留一個把手。面板跟著淺色／深色主題 */
+:root {
+  --bg: #ffffff;
+  --fg: #1c2325;
+  --muted: #5d6a6e;
+  --line: #d8dfe0;
+  --accent: #2b6c71;
+  --panel: rgba(255, 255, 255, 0.94);
+  --font: Arial, "Helvetica Neue", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111617; --fg: #e5ebeb; --muted: #98a6a9; --line: #2a3335; --accent: #6db3b6;
+    --panel: rgba(24, 32, 34, 0.94); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111617; --fg: #e5ebeb; --muted: #98a6a9; --line: #2a3335; --accent: #6db3b6;
+  --panel: rgba(24, 32, 34, 0.94); color-scheme: dark;
+}
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; line-height: 1.55; }
+#map { position: fixed; inset: 0; background: #e3e1db; }
+.panel {
+  position: absolute; z-index: 2; top: calc(12px + env(safe-area-inset-top, 0px)); left: max(12px, env(safe-area-inset-left, 0px));
+  width: 300px; max-width: calc(100% - 48px); transition: transform 0.25s ease;
+}
+.panel .inner {
+  max-height: calc(100vh - 60px); overflow: auto; box-sizing: border-box;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; display: grid; gap: 10px;
+}
+/* 收起：整塊往左滑出畫面（自己的寬度再加左邊的間距），掛在右邊的把手剛好停在畫面左緣 */
+.panel.closed { transform: translateX(calc(-100% - max(12px, env(safe-area-inset-left, 0px)))); }
+.handle {
+  position: absolute; left: 100%; top: 14px; width: 22px; height: 44px; margin-left: -1px; padding: 0; box-sizing: border-box;
+  display: grid; place-items: center; color: var(--accent); background: var(--panel); cursor: pointer;
+  border: 1px solid var(--line); border-left: 0; border-radius: 0 6px 6px 0;
+}
+.handle svg { transition: transform 0.25s ease; }
+.panel.closed .handle svg { transform: rotate(180deg); }
+h1 { margin: 0; font-size: 17px; line-height: 1.3; }
+.head { display: flex; align-items: baseline; gap: 10px; }
+.head .note { flex: 1; min-width: 0; }
+.body { display: grid; gap: 10px; }
+[hidden] { display: none !important; }
+.sub { margin: 0; color: var(--muted); font-size: 13px; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+output, .num { font-variant-numeric: tabular-nums; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button { flex: 1; font: inherit; font-size: 13px; color: var(--muted); background: transparent; border: 0; padding: 5px 4px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg); }
+label.chk { display: flex; align-items: center; gap: 6px; color: var(--fg); }
+.lab { color: var(--muted); font-size: 13px; }
+.info { border-top: 1px solid var(--line); padding-top: 8px; display: grid; gap: 4px; }
+.info dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; }
+.info dt { color: var(--muted); }
+.info dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.info a { color: var(--accent); }
+.note { color: var(--muted); font-size: 12px; }
+details.src { border-top: 1px solid var(--line); padding-top: 8px; font-size: 12px; color: var(--muted); }
+details.src summary { cursor: pointer; color: var(--fg); font-size: 13px; }
+details.src ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.maplibregl-ctrl-attrib { font-size: 11px; }
+.debug { position: fixed; z-index: 3; right: 10px; bottom: 36px; margin: 0; padding: 6px 8px; font: 11px/1.5 var(--font);
+         color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; white-space: pre; }
+@media (max-width: 520px) {
+  /* 手機：面板在下面，把手在上緣中間，收起時整塊往下滑出畫面 */
+  .panel { top: auto; bottom: calc(36px + env(safe-area-inset-bottom, 0px)); left: max(10px, env(safe-area-inset-left, 0px));
+           right: max(10px, env(safe-area-inset-right, 0px)); width: auto; max-width: none; }
+  .panel .inner { max-height: 46vh; gap: 8px; padding: 10px 12px; }
+  .panel.closed { transform: translateY(calc(100% + 36px + env(safe-area-inset-bottom, 0px))); }
+  .handle { left: 50%; top: auto; bottom: 100%; width: 56px; height: 22px; margin: 0 0 -1px -28px;
+            border: 1px solid var(--line); border-bottom: 0; border-radius: 6px 6px 0 0; }
+  .handle svg { transform: rotate(-90deg); }
+  .panel.closed .handle svg { transform: rotate(90deg); }
+  .body { gap: 8px; }
+  .sub { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .panel, .handle svg { transition: none; } }
+.maplibregl-map{font:12px/20px Helvetica Neue,Arial,Helvetica,sans-serif;overflow:hidden;position:relative;-webkit-tap-highlight-color:rgb(0 0 0/0)}.maplibregl-canvas{left:0;position:absolute;top:0}.maplibregl-map:fullscreen{height:100%;width:100%}.maplibregl-ctrl-group button.maplibregl-ctrl-compass{touch-action:none}.maplibregl-canvas-container.maplibregl-interactive,.maplibregl-ctrl-group button.maplibregl-ctrl-compass{cursor:grab;-webkit-user-select:none;-moz-user-select:none;user-select:none}.maplibregl-canvas-container.maplibregl-interactive.maplibregl-track-pointer{cursor:pointer}.maplibregl-canvas-container.maplibregl-interactive:active,.maplibregl-ctrl-group button.maplibregl-ctrl-compass:active{cursor:grabbing}.maplibregl-canvas-container.maplibregl-touch-zoom-rotate,.maplibregl-canvas-container.maplibregl-touch-zoom-rotate .maplibregl-canvas{touch-action:pan-x pan-y}.maplibregl-canvas-container.maplibregl-touch-drag-pan,.maplibregl-canvas-container.maplibregl-touch-drag-pan .maplibregl-canvas{touch-action:pinch-zoom}.maplibregl-canvas-container.maplibregl-touch-zoom-rotate.maplibregl-touch-drag-pan,.maplibregl-canvas-container.maplibregl-touch-zoom-rotate.maplibregl-touch-drag-pan .maplibregl-canvas{touch-action:none}.maplibregl-canvas-container.maplibregl-touch-drag-pan.maplibregl-cooperative-gestures,.maplibregl-canvas-container.maplibregl-touch-drag-pan.maplibregl-cooperative-gestures .maplibregl-canvas{touch-action:pan-x pan-y}.maplibregl-ctrl-bottom-left,.maplibregl-ctrl-bottom-right,.maplibregl-ctrl-top-left,.maplibregl-ctrl-top-right{pointer-events:none;position:absolute;z-index:2}.maplibregl-ctrl-top-left{left:0;top:0}.maplibregl-ctrl-top-right{right:0;top:0}.maplibregl-ctrl-bottom-left{bottom:0;left:0}.maplibregl-ctrl-bottom-right{bottom:0;right:0}.maplibregl-ctrl{clear:both;pointer-events:auto;transform:translate(0)}.maplibregl-ctrl-top-left .maplibregl-ctrl{float:left;margin:10px 0 0 10px}.maplibregl-ctrl-top-right .maplibregl-ctrl{float:right;margin:10px 10px 0 0}.maplibregl-ctrl-bottom-left .maplibregl-ctrl{float:left;margin:0 0 10px 10px}.maplibregl-ctrl-bottom-right .maplibregl-ctrl{float:right;margin:0 10px 10px 0}.maplibregl-ctrl-group{background:#fff;border-radius:4px}.maplibregl-ctrl-group:not(:empty){box-shadow:0 0 0 2px rgba(0,0,0,.1)}@media (forced-colors:active){.maplibregl-ctrl-group:not(:empty){box-shadow:0 0 0 2px ButtonText}}.maplibregl-ctrl-group button{background-color:transparent;border:0;box-sizing:border-box;cursor:pointer;display:block;height:29px;outline:none;padding:0;width:29px}.maplibregl-ctrl-group button+button{border-top:1px solid #ddd}.maplibregl-ctrl button .maplibregl-ctrl-icon{background-position:50%;background-repeat:no-repeat;display:block;height:100%;width:100%}@media (forced-colors:active){.maplibregl-ctrl-icon{background-color:transparent}.maplibregl-ctrl-group button+button{border-top:1px solid ButtonText}}.maplibregl-ctrl button::-moz-focus-inner{border:0;padding:0}.maplibregl-ctrl-attrib-button:focus,.maplibregl-ctrl-group button:focus{box-shadow:0 0 2px 2px #0096ff}.maplibregl-ctrl button:disabled{cursor:not-allowed}.maplibregl-ctrl button:disabled .maplibregl-ctrl-icon{opacity:.25}.maplibregl-ctrl button:not(:disabled):hover{background-color:rgb(0 0 0/5%)}.maplibregl-ctrl-group button:focus:focus-visible{box-shadow:0 0 2px 2px #0096ff}.maplibregl-ctrl-group button:focus:not(:focus-visible){box-shadow:none}.maplibregl-ctrl-group button:focus:first-child{border-radius:4px 4px 0 0}.maplibregl-ctrl-group button:focus:last-child{border-radius:0 0 4px 4px}.maplibregl-ctrl-group button:focus:only-child{border-radius:inherit}.maplibregl-ctrl button.maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23333' viewBox='0 0 29 29'%3E%3Cpath d='M10 13c-.75 0-1.5.75-1.5 1.5S9.25 16 10 16h9c.75 0 1.5-.75 1.5-1.5S19.75 13 19 13z'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23333' viewBox='0 0 29 29'%3E%3Cpath d='M14.5 8.5c-.75 0-1.5.75-1.5 1.5v3h-3c-.75 0-1.5.75-1.5 1.5S9.25 16 10 16h3v3c0 .75.75 1.5 1.5 1.5S16 19.75 16 19v-3h3c.75 0 1.5-.75 1.5-1.5S19.75 13 19 13h-3v-3c0-.75-.75-1.5-1.5-1.5'/%3E%3C/svg%3E")}@media (forced-colors:active){.maplibregl-ctrl button.maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23fff' viewBox='0 0 29 29'%3E%3Cpath d='M10 13c-.75 0-1.5.75-1.5 1.5S9.25 16 10 16h9c.75 0 1.5-.75 1.5-1.5S19.75 13 19 13z'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23fff' viewBox='0 0 29 29'%3E%3Cpath d='M14.5 8.5c-.75 0-1.5.75-1.5 1.5v3h-3c-.75 0-1.5.75-1.5 1.5S9.25 16 10 16h3v3c0 .75.75 1.5 1.5 1.5S16 19.75 16 19v-3h3c.75 0 1.5-.75 1.5-1.5S19.75 13 19 13h-3v-3c0-.75-.75-1.5-1.5-1.5'/%3E%3C/svg%3E")}}@media (forced-colors:active) and (prefers-color-scheme:light){.maplibregl-ctrl button.maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' viewBox='0 0 29 29'%3E%3Cpath d='M10 13c-.75 0-1.5.75-1.5 1.5S9.25 16 10 16h9c.75 0 1.5-.75 1.5-1.5S19.75 13 19 13z'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' viewBox='0 0 29 29'%3E%3Cpath d='M14.5 8.5c-.75 0-1.5.75-1.5 1.5v3h-3c-.75 0-1.5.75-1.5 1.5S9.25 16 10 16h3v3c0 .75.75 1.5 1.5 1.5S16 19.75 16 19v-3h3c.75 0 1.5-.75 1.5-1.5S19.75 13 19 13h-3v-3c0-.75-.75-1.5-1.5-1.5'/%3E%3C/svg%3E")}}.maplibregl-ctrl button.maplibregl-ctrl-fullscreen .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23333' viewBox='0 0 29 29'%3E%3Cpath d='M24 16v5.5c0 1.75-.75 2.5-2.5 2.5H16v-1l3-1.5-4-5.5 1-1 5.5 4 1.5-3zM6 16l1.5 3 5.5-4 1 1-4 5.5 3 1.5v1H7.5C5.75 24 5 23.25 5 21.5V16zm7-11v1l-3 1.5 4 5.5-1 1-5.5-4L6 13H5V7.5C5 5.75 5.75 5 7.5 5zm11 2.5c0-1.75-.75-2.5-2.5-2.5H16v1l3 1.5-4 5.5 1 1 5.5-4 1.5 3h1z'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-shrink .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' viewBox='0 0 29 29'%3E%3Cpath d='M18.5 16c-1.75 0-2.5.75-2.5 2.5V24h1l1.5-3 5.5 4 1-1-4-5.5 3-1.5v-1zM13 18.5c0-1.75-.75-2.5-2.5-2.5H5v1l3 1.5L4 24l1 1 5.5-4 1.5 3h1zm3-8c0 1.75.75 2.5 2.5 2.5H24v-1l-3-1.5L25 5l-1-1-5.5 4L17 5h-1zM10.5 13c1.75 0 2.5-.75 2.5-2.5V5h-1l-1.5 3L5 4 4 5l4 5.5L5 12v1z'/%3E%3C/svg%3E")}@media (forced-colors:active){.maplibregl-ctrl button.maplibregl-ctrl-fullscreen .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23fff' viewBox='0 0 29 29'%3E%3Cpath d='M24 16v5.5c0 1.75-.75 2.5-2.5 2.5H16v-1l3-1.5-4-5.5 1-1 5.5 4 1.5-3zM6 16l1.5 3 5.5-4 1 1-4 5.5 3 1.5v1H7.5C5.75 24 5 23.25 5 21.5V16zm7-11v1l-3 1.5 4 5.5-1 1-5.5-4L6 13H5V7.5C5 5.75 5.75 5 7.5 5zm11 2.5c0-1.75-.75-2.5-2.5-2.5H16v1l3 1.5-4 5.5 1 1 5.5-4 1.5 3h1z'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-shrink .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23fff' viewBox='0 0 29 29'%3E%3Cpath d='M18.5 16c-1.75 0-2.5.75-2.5 2.5V24h1l1.5-3 5.5 4 1-1-4-5.5 3-1.5v-1zM13 18.5c0-1.75-.75-2.5-2.5-2.5H5v1l3 1.5L4 24l1 1 5.5-4 1.5 3h1zm3-8c0 1.75.75 2.5 2.5 2.5H24v-1l-3-1.5L25 5l-1-1-5.5 4L17 5h-1zM10.5 13c1.75 0 2.5-.75 2.5-2.5V5h-1l-1.5 3L5 4 4 5l4 5.5L5 12v1z'/%3E%3C/svg%3E")}}@media (forced-colors:active) and (prefers-color-scheme:light){.maplibregl-ctrl button.maplibregl-ctrl-fullscreen .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' viewBox='0 0 29 29'%3E%3Cpath d='M24 16v5.5c0 1.75-.75 2.5-2.5 2.5H16v-1l3-1.5-4-5.5 1-1 5.5 4 1.5-3zM6 16l1.5 3 5.5-4 1 1-4 5.5 3 1.5v1H7.5C5.75 24 5 23.25 5 21.5V16zm7-11v1l-3 1.5 4 5.5-1 1-5.5-4L6 13H5V7.5C5 5.75 5.75 5 7.5 5zm11 2.5c0-1.75-.75-2.5-2.5-2.5H16v1l3 1.5-4 5.5 1 1 5.5-4 1.5 3h1z'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-shrink .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' viewBox='0 0 29 29'%3E%3Cpath d='M18.5 16c-1.75 0-2.5.75-2.5 2.5V24h1l1.5-3 5.5 4 1-1-4-5.5 3-1.5v-1zM13 18.5c0-1.75-.75-2.5-2.5-2.5H5v1l3 1.5L4 24l1 1 5.5-4 1.5 3h1zm3-8c0 1.75.75 2.5 2.5 2.5H24v-1l-3-1.5L25 5l-1-1-5.5 4L17 5h-1zM10.5 13c1.75 0 2.5-.75 2.5-2.5V5h-1l-1.5 3L5 4 4 5l4 5.5L5 12v1z'/%3E%3C/svg%3E")}}.maplibregl-ctrl button.maplibregl-ctrl-compass .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23333' viewBox='0 0 29 29'%3E%3Cpath d='m10.5 14 4-8 4 8z'/%3E%3Cpath fill='%23ccc' d='m10.5 16 4 8 4-8z'/%3E%3C/svg%3E")}@media (forced-colors:active){.maplibregl-ctrl button.maplibregl-ctrl-compass .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23fff' viewBox='0 0 29 29'%3E%3Cpath d='m10.5 14 4-8 4 8z'/%3E%3Cpath fill='%23ccc' d='m10.5 16 4 8 4-8z'/%3E%3C/svg%3E")}}@media (forced-colors:active) and (prefers-color-scheme:light){.maplibregl-ctrl button.maplibregl-ctrl-compass .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' viewBox='0 0 29 29'%3E%3Cpath d='m10.5 14 4-8 4 8z'/%3E%3Cpath fill='%23ccc' d='m10.5 16 4 8 4-8z'/%3E%3C/svg%3E")}}.maplibregl-ctrl button.maplibregl-ctrl-terrain .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' fill='%23333' viewBox='0 0 22 22'%3E%3Cpath d='m1.754 13.406 4.453-4.851 3.09 3.09 3.281 3.277.969-.969-3.309-3.312 3.844-4.121 6.148 6.886h1.082v-.855l-7.207-8.07-4.84 5.187L6.169 6.57l-5.48 5.965v.871ZM.688 16.844h20.625v1.375H.688Zm0 0'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-terrain-enabled .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' fill='%2333b5e5' viewBox='0 0 22 22'%3E%3Cpath d='m1.754 13.406 4.453-4.851 3.09 3.09 3.281 3.277.969-.969-3.309-3.312 3.844-4.121 6.148 6.886h1.082v-.855l-7.207-8.07-4.84 5.187L6.169 6.57l-5.48 5.965v.871ZM.688 16.844h20.625v1.375H.688Zm0 0'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-geolocate .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23333' viewBox='0 0 20 20'%3E%3Cpath d='M10 4C9 4 9 5 9 5v.1A5 5 0 0 0 5.1 9H5s-1 0-1 1 1 1 1 1h.1A5 5 0 0 0 9 14.9v.1s0 1 1 1 1-1 1-1v-.1a5 5 0 0 0 3.9-3.9h.1s1 0 1-1-1-1-1-1h-.1A5 5 0 0 0 11 5.1V5s0-1-1-1m0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7'/%3E%3Ccircle cx='10' cy='10' r='2'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-geolocate:disabled .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23aaa' viewBox='0 0 20 20'%3E%3Cpath d='M10 4C9 4 9 5 9 5v.1A5 5 0 0 0 5.1 9H5s-1 0-1 1 1 1 1 1h.1A5 5 0 0 0 9 14.9v.1s0 1 1 1 1-1 1-1v-.1a5 5 0 0 0 3.9-3.9h.1s1 0 1-1-1-1-1-1h-.1A5 5 0 0 0 11 5.1V5s0-1-1-1m0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7'/%3E%3Ccircle cx='10' cy='10' r='2'/%3E%3Cpath fill='red' d='m14 5 1 1-9 9-1-1z'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%2333b5e5' viewBox='0 0 20 20'%3E%3Cpath d='M10 4C9 4 9 5 9 5v.1A5 5 0 0 0 5.1 9H5s-1 0-1 1 1 1 1 1h.1A5 5 0 0 0 9 14.9v.1s0 1 1 1 1-1 1-1v-.1a5 5 0 0 0 3.9-3.9h.1s1 0 1-1-1-1-1-1h-.1A5 5 0 0 0 11 5.1V5s0-1-1-1m0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7'/%3E%3Ccircle cx='10' cy='10' r='2'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active-error .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23e58978' viewBox='0 0 20 20'%3E%3Cpath d='M10 4C9 4 9 5 9 5v.1A5 5 0 0 0 5.1 9H5s-1 0-1 1 1 1 1 1h.1A5 5 0 0 0 9 14.9v.1s0 1 1 1 1-1 1-1v-.1a5 5 0 0 0 3.9-3.9h.1s1 0 1-1-1-1-1-1h-.1A5 5 0 0 0 11 5.1V5s0-1-1-1m0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7'/%3E%3Ccircle cx='10' cy='10' r='2'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-background .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%2333b5e5' viewBox='0 0 20 20'%3E%3Cpath d='M10 4C9 4 9 5 9 5v.1A5 5 0 0 0 5.1 9H5s-1 0-1 1 1 1 1 1h.1A5 5 0 0 0 9 14.9v.1s0 1 1 1 1-1 1-1v-.1a5 5 0 0 0 3.9-3.9h.1s1 0 1-1-1-1-1-1h-.1A5 5 0 0 0 11 5.1V5s0-1-1-1m0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-background-error .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23e54e33' viewBox='0 0 20 20'%3E%3Cpath d='M10 4C9 4 9 5 9 5v.1A5 5 0 0 0 5.1 9H5s-1 0-1 1 1 1 1 1h.1A5 5 0 0 0 9 14.9v.1s0 1 1 1 1-1 1-1v-.1a5 5 0 0 0 3.9-3.9h.1s1 0 1-1-1-1-1-1h-.1A5 5 0 0 0 11 5.1V5s0-1-1-1m0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-waiting .maplibregl-ctrl-icon{animation:maplibregl-spin 2s linear infinite}@media (forced-colors:active){.maplibregl-ctrl button.maplibregl-ctrl-geolocate .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23fff' viewBox='0 0 20 20'%3E%3Cpath d='M10 4C9 4 9 5 9 5v.1A5 5 0 0 0 5.1 9H5s-1 0-1 1 1 1 1 1h.1A5 5 0 0 0 9 14.9v.1s0 1 1 1 1-1 1-1v-.1a5 5 0 0 0 3.9-3.9h.1s1 0 1-1-1-1-1-1h-.1A5 5 0 0 0 11 5.1V5s0-1-1-1m0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7'/%3E%3Ccircle cx='10' cy='10' r='2'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-geolocate:disabled .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23999' viewBox='0 0 20 20'%3E%3Cpath d='M10 4C9 4 9 5 9 5v.1A5 5 0 0 0 5.1 9H5s-1 0-1 1 1 1 1 1h.1A5 5 0 0 0 9 14.9v.1s0 1 1 1 1-1 1-1v-.1a5 5 0 0 0 3.9-3.9h.1s1 0 1-1-1-1-1-1h-.1A5 5 0 0 0 11 5.1V5s0-1-1-1m0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7'/%3E%3Ccircle cx='10' cy='10' r='2'/%3E%3Cpath fill='red' d='m14 5 1 1-9 9-1-1z'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%2333b5e5' viewBox='0 0 20 20'%3E%3Cpath d='M10 4C9 4 9 5 9 5v.1A5 5 0 0 0 5.1 9H5s-1 0-1 1 1 1 1 1h.1A5 5 0 0 0 9 14.9v.1s0 1 1 1 1-1 1-1v-.1a5 5 0 0 0 3.9-3.9h.1s1 0 1-1-1-1-1-1h-.1A5 5 0 0 0 11 5.1V5s0-1-1-1m0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7'/%3E%3Ccircle cx='10' cy='10' r='2'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-active-error .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23e58978' viewBox='0 0 20 20'%3E%3Cpath d='M10 4C9 4 9 5 9 5v.1A5 5 0 0 0 5.1 9H5s-1 0-1 1 1 1 1 1h.1A5 5 0 0 0 9 14.9v.1s0 1 1 1 1-1 1-1v-.1a5 5 0 0 0 3.9-3.9h.1s1 0 1-1-1-1-1-1h-.1A5 5 0 0 0 11 5.1V5s0-1-1-1m0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7'/%3E%3Ccircle cx='10' cy='10' r='2'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-background .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%2333b5e5' viewBox='0 0 20 20'%3E%3Cpath d='M10 4C9 4 9 5 9 5v.1A5 5 0 0 0 5.1 9H5s-1 0-1 1 1 1 1 1h.1A5 5 0 0 0 9 14.9v.1s0 1 1 1 1-1 1-1v-.1a5 5 0 0 0 3.9-3.9h.1s1 0 1-1-1-1-1-1h-.1A5 5 0 0 0 11 5.1V5s0-1-1-1m0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-geolocate.maplibregl-ctrl-geolocate-background-error .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23e54e33' viewBox='0 0 20 20'%3E%3Cpath d='M10 4C9 4 9 5 9 5v.1A5 5 0 0 0 5.1 9H5s-1 0-1 1 1 1 1 1h.1A5 5 0 0 0 9 14.9v.1s0 1 1 1 1-1 1-1v-.1a5 5 0 0 0 3.9-3.9h.1s1 0 1-1-1-1-1-1h-.1A5 5 0 0 0 11 5.1V5s0-1-1-1m0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7'/%3E%3C/svg%3E")}}@media (forced-colors:active) and (prefers-color-scheme:light){.maplibregl-ctrl button.maplibregl-ctrl-geolocate .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' viewBox='0 0 20 20'%3E%3Cpath d='M10 4C9 4 9 5 9 5v.1A5 5 0 0 0 5.1 9H5s-1 0-1 1 1 1 1 1h.1A5 5 0 0 0 9 14.9v.1s0 1 1 1 1-1 1-1v-.1a5 5 0 0 0 3.9-3.9h.1s1 0 1-1-1-1-1-1h-.1A5 5 0 0 0 11 5.1V5s0-1-1-1m0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7'/%3E%3Ccircle cx='10' cy='10' r='2'/%3E%3C/svg%3E")}.maplibregl-ctrl button.maplibregl-ctrl-geolocate:disabled .maplibregl-ctrl-icon{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='29' height='29' fill='%23666' viewBox='0 0 20 20'%3E%3Cpath d='M10 4C9 4 9 5 9 5v.1A5 5 0 0 0 5.1 9H5s-1 0-1 1 1 1 1 1h.1A5 5 0 0 0 9 14.9v.1s0 1 1 1 1-1 1-1v-.1a5 5 0 0 0 3.9-3.9h.1s1 0 1-1-1-1-1-1h-.1A5 5 0 0 0 11 5.1V5s0-1-1-1m0 2.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7'/%3E%3Ccircle cx='10' cy='10' r='2'/%3E%3Cpath fill='red' d='m14 5 1 1-9 9-1-1z'/%3E%3C/svg%3E")}}@keyframes maplibregl-spin{0%{transform:rotate(0deg)}to{transform:rotate(1turn)}}a.maplibregl-ctrl-logo{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='88' height='23' fill='none'%3E%3Cpath fill='%23000' fill-opacity='.4' fill-rule='evenodd' d='M17.408 16.796h-1.827l2.501-12.095h.198l3.324 6.533.988 2.19.988-2.19 3.258-6.533h.181l2.6 12.095h-1.81l-1.218-5.644-.362-1.71-.658 1.71-2.929 5.644h-.098l-2.914-5.644-.757-1.71-.345 1.71zm1.958-3.42-.726 3.663a1.255 1.255 0 0 1-1.232 1.011h-1.827a1.255 1.255 0 0 1-1.229-1.509l2.501-12.095a1.255 1.255 0 0 1 1.23-1.001h.197a1.25 1.25 0 0 1 1.12.685l3.19 6.273 3.125-6.263a1.25 1.25 0 0 1 1.123-.695h.181a1.255 1.255 0 0 1 1.227.991l1.443 6.71a5 5 0 0 1 .314-.787l.009-.016a4.6 4.6 0 0 1 1.777-1.887c.782-.46 1.668-.667 2.611-.667a4.6 4.6 0 0 1 1.7.32l.306.134c.21-.16.474-.256.759-.256h1.694a1.255 1.255 0 0 1 1.212.925 1.255 1.255 0 0 1 1.212-.925h1.711c.284 0 .545.094.755.252.613-.3 1.312-.45 2.075-.45 1.356 0 2.557.445 3.482 1.4q.47.48.763 1.064V4.701a1.255 1.255 0 0 1 1.255-1.255h1.86A1.255 1.255 0 0 1 54.44 4.7v9.194h2.217c.19 0 .37.043.532.118v-4.77c0-.356.147-.678.385-.906a2.42 2.42 0 0 1-.682-1.71c0-.665.267-1.253.735-1.7a2.45 2.45 0 0 1 1.722-.674 2.43 2.43 0 0 1 1.705.675q.318.302.504.683V4.7a1.255 1.255 0 0 1 1.255-1.255h1.744A1.255 1.255 0 0 1 65.812 4.7v3.335a4.8 4.8 0 0 1 1.526-.246c.938 0 1.817.214 2.59.69a4.47 4.47 0 0 1 1.67 1.743v-.98a1.255 1.255 0 0 1 1.256-1.256h1.777c.233 0 .451.064.639.174a3.4 3.4 0 0 1 1.567-.372c.346 0 .861.02 1.285.232a1.25 1.25 0 0 1 .689 1.004 4.7 4.7 0 0 1 .853-.588c.795-.44 1.675-.647 2.61-.647 1.385 0 2.65.39 3.525 1.396.836.938 1.168 2.173 1.168 3.528q-.001.515-.056 1.051a1.255 1.255 0 0 1-.947 1.09l.408.952a1.255 1.255 0 0 1-.477 1.552c-.418.268-.92.463-1.458.612-.613.171-1.304.244-2.049.244-1.06 0-2.043-.207-2.886-.698l-.015-.008c-.798-.48-1.419-1.135-1.818-1.963l-.004-.008a5.8 5.8 0 0 1-.548-2.512q0-.429.053-.843a1.3 1.3 0 0 1-.333-.086l-.166-.004c-.223 0-.426.062-.643.228-.03.024-.142.139-.142.59v3.883a1.255 1.255 0 0 1-1.256 1.256h-1.777a1.255 1.255 0 0 1-1.256-1.256V15.69l-.032.057a4.8 4.8 0 0 1-1.86 1.833 5.04 5.04 0 0 1-2.484.634 4.5 4.5 0 0 1-1.935-.424 1.25 1.25 0 0 1-.764.258h-1.71a1.255 1.255 0 0 1-1.256-1.255V7.687a2.4 2.4 0 0 1-.428.625c.253.23.412.561.412.93v7.553a1.255 1.255 0 0 1-1.256 1.255h-1.843a1.25 1.25 0 0 1-.894-.373c-.228.23-.544.373-.894.373H51.32a1.255 1.255 0 0 1-1.256-1.255v-1.251l-.061.117a4.7 4.7 0 0 1-1.782 1.884 4.77 4.77 0 0 1-2.485.67 5.6 5.6 0 0 1-1.485-.188l.009 2.764a1.255 1.255 0 0 1-1.255 1.259h-1.729a1.255 1.255 0 0 1-1.255-1.255v-3.537a1.255 1.255 0 0 1-1.167.793h-1.679a1.25 1.25 0 0 1-.77-.263 4.5 4.5 0 0 1-1.945.429c-.885 0-1.724-.21-2.495-.632l-.017-.01a5 5 0 0 1-1.081-.836 1.255 1.255 0 0 1-1.254 1.312h-1.81a1.255 1.255 0 0 1-1.228-.99l-.782-3.625-2.044 3.939a1.25 1.25 0 0 1-1.115.676h-.098a1.25 1.25 0 0 1-1.116-.68l-2.061-3.994zM35.92 16.63l.207-.114.223-.15q.493-.356.735-.785l.061-.118.033 1.332h1.678V9.242h-1.694l-.033 1.267q-.133-.329-.526-.658l-.032-.028a3.2 3.2 0 0 0-.668-.428l-.27-.12a3.3 3.3 0 0 0-1.235-.23q-1.136-.001-1.974.493a3.36 3.36 0 0 0-1.3 1.382q-.445.89-.444 2.074 0 1.2.51 2.107a3.8 3.8 0 0 0 1.382 1.381 3.9 3.9 0 0 0 1.893.477q.795 0 1.455-.33zm-2.789-5.38q-.576.675-.575 1.762 0 1.102.559 1.794.576.675 1.645.675a2.25 2.25 0 0 0 .934-.19 2.2 2.2 0 0 0 .468-.29l.178-.161a2.2 2.2 0 0 0 .397-.561q.244-.5.244-1.15v-.115q0-.708-.296-1.267l-.043-.077a2.2 2.2 0 0 0-.633-.709l-.13-.086-.047-.028a2.1 2.1 0 0 0-1.073-.285q-1.052 0-1.629.692zm2.316 2.706c.163-.17.28-.407.28-.83v-.114c0-.292-.06-.508-.15-.68a.96.96 0 0 0-.353-.389.85.85 0 0 0-.464-.127c-.4 0-.56.114-.664.239l-.01.012c-.148.174-.275.45-.275.945 0 .506.122.801.27.99.097.11.266.224.68.224.303 0 .504-.09.687-.269zm7.545 1.705a2.6 2.6 0 0 0 .331.423q.319.33.755.548l.173.074q.65.255 1.49.255 1.02 0 1.844-.493a3.45 3.45 0 0 0 1.316-1.4q.493-.904.493-2.089 0-1.909-.988-2.913-.988-1.02-2.584-1.02-.898 0-1.575.347a3 3 0 0 0-.415.262l-.199.166a3.4 3.4 0 0 0-.64.82V9.242h-1.712v11.553h1.729l-.017-5.134zm.53-1.138q.206.29.48.5l.155.11.053.034q.51.296 1.119.297 1.07 0 1.645-.675.577-.69.576-1.762 0-1.119-.576-1.777-.558-.675-1.645-.675-.435 0-.835.16a2 2 0 0 0-.284.136 2 2 0 0 0-.363.254 2.2 2.2 0 0 0-.46.569l-.082.162a2.6 2.6 0 0 0-.213 1.072v.115q0 .707.296 1.267l.135.211zm.964-.818a1.1 1.1 0 0 0 .367.385.94.94 0 0 0 .476.118c.423 0 .59-.117.687-.23.159-.194.28-.478.28-.95 0-.53-.133-.8-.266-.952l-.021-.025c-.078-.094-.231-.221-.68-.221a1 1 0 0 0-.503.135l-.012.007a.86.86 0 0 0-.335.343c-.073.133-.132.324-.132.614v.115a1.4 1.4 0 0 0 .14.66zm15.7-6.222q.347-.346.346-.856a1.05 1.05 0 0 0-.345-.79 1.18 1.18 0 0 0-.84-.329q-.51 0-.855.33a1.05 1.05 0 0 0-.346.79q0 .51.346.855.345.346.856.346.51 0 .839-.346zm4.337 9.314.033-1.332q.191.403.59.747l.098.081a4 4 0 0 0 .316.224l.223.122a3.2 3.2 0 0 0 1.44.322 3.8 3.8 0 0 0 1.875-.477 3.5 3.5 0 0 0 1.382-1.366q.527-.89.526-2.09 0-1.184-.444-2.073a3.24 3.24 0 0 0-1.283-1.399q-.823-.51-1.942-.51a3.5 3.5 0 0 0-1.527.344l-.086.043-.165.09a3 3 0 0 0-.33.214q-.432.315-.656.707a2 2 0 0 0-.099.198l.082-1.283V4.701h-1.744v12.095zm.473-2.509a2.5 2.5 0 0 0 .566.7q.117.098.245.18l.144.08a2.1 2.1 0 0 0 .975.232q1.07 0 1.645-.675.576-.69.576-1.778 0-1.102-.576-1.777-.56-.691-1.645-.692a2.2 2.2 0 0 0-1.015.235q-.22.113-.415.282l-.15.142a2.1 2.1 0 0 0-.42.594q-.223.479-.223 1.1v.115q0 .705.293 1.26zm2.616-.293c.157-.191.28-.479.28-.967 0-.51-.13-.79-.276-.961l-.021-.026c-.082-.1-.232-.225-.67-.225a.87.87 0 0 0-.681.279l-.012.011c-.154.155-.274.38-.274.807v.115c0 .285.057.499.144.669a1.1 1.1 0 0 0 .367.405c.137.082.28.123.455.123.423 0 .59-.118.686-.23zm8.266-3.013q.345-.13.724-.14l.069-.002q.493 0 .642.099l.247-1.794q-.196-.099-.717-.099a2.3 2.3 0 0 0-.545.063 2 2 0 0 0-.411.148 2.2 2.2 0 0 0-.4.249 2.5 2.5 0 0 0-.485.499 2.7 2.7 0 0 0-.32.581l-.05.137v-1.48h-1.778v7.553h1.777v-3.884q0-.546.159-.943a1.5 1.5 0 0 1 .466-.636 2.5 2.5 0 0 1 .399-.253 2 2 0 0 1 .224-.099zm9.784 2.656.05-.922q0-1.743-.856-2.698-.838-.97-2.584-.97-1.119-.001-2.007.493a3.46 3.46 0 0 0-1.4 1.382q-.493.906-.493 2.106 0 1.07.428 1.975.428.89 1.332 1.432.906.526 2.255.526.973 0 1.668-.185l.044-.012.135-.04q.613-.184.984-.421l-.542-1.267q-.3.162-.642.274l-.297.087q-.51.131-1.3.131-.954 0-1.497-.444a1.6 1.6 0 0 1-.192-.193q-.366-.44-.512-1.234l-.004-.021zm-5.427-1.256-.003.022h3.752v-.138q-.011-.727-.288-1.118a1 1 0 0 0-.156-.176q-.46-.428-1.316-.428-.986 0-1.494.604-.379.45-.494 1.234zm-27.053 2.77V4.7h-1.86v12.095h5.333V15.15zm7.103-5.908v7.553h-1.843V9.242h1.843z'/%3E%3Cpath fill='%23fff' d='m19.63 11.151-.757-1.71-.345 1.71-1.12 5.644h-1.827L18.083 4.7h.197l3.325 6.533.988 2.19.988-2.19L26.839 4.7h.181l2.6 12.095h-1.81l-1.218-5.644-.362-1.71-.658 1.71-2.93 5.644h-.098l-2.913-5.644zm14.836 5.81q-1.02 0-1.893-.478a3.8 3.8 0 0 1-1.381-1.382q-.51-.906-.51-2.106 0-1.185.444-2.074a3.36 3.36 0 0 1 1.3-1.382q.839-.494 1.974-.494a3.3 3.3 0 0 1 1.234.231 3.3 3.3 0 0 1 .97.575q.396.33.527.659l.033-1.267h1.694v7.553H37.18l-.033-1.332q-.279.593-1.02 1.053a3.17 3.17 0 0 1-1.662.444zm.296-1.482q.938 0 1.58-.642.642-.66.642-1.711v-.115q0-.708-.296-1.267a2.2 2.2 0 0 0-.807-.872 2.1 2.1 0 0 0-1.119-.313q-1.053 0-1.629.692-.575.675-.575 1.76 0 1.103.559 1.795.577.675 1.645.675zm6.521-6.237h1.711v1.4q.906-1.597 2.83-1.597 1.596 0 2.584 1.02.988 1.005.988 2.914 0 1.185-.493 2.09a3.46 3.46 0 0 1-1.316 1.399 3.5 3.5 0 0 1-1.844.493q-.954 0-1.662-.329a2.67 2.67 0 0 1-1.086-.97l.017 5.134h-1.728zm4.048 6.22q1.07 0 1.645-.674.577-.69.576-1.762 0-1.119-.576-1.777-.558-.675-1.645-.675-.592 0-1.12.296-.51.28-.822.823-.296.527-.296 1.234v.115q0 .708.296 1.267.313.543.823.855.51.296 1.119.297z'/%3E%3Cpath fill='%23e1e3e9' d='M51.325 4.7h1.86v10.45h3.473v1.646h-5.333zm7.12 4.542h1.843v7.553h-1.843zm.905-1.415a1.16 1.16 0 0 1-.856-.346 1.17 1.17 0 0 1-.346-.856 1.05 1.05 0 0 1 .346-.79q.346-.329.856-.329.494 0 .839.33a1.05 1.05 0 0 1 .345.79 1.16 1.16 0 0 1-.345.855q-.33.346-.84.346zm7.875 9.133a3.17 3.17 0 0 1-1.662-.444q-.723-.46-1.004-1.053l-.033 1.332h-1.71V4.701h1.743v4.657l-.082 1.283q.279-.658 1.086-1.119a3.5 3.5 0 0 1 1.778-.477q1.119 0 1.942.51a3.24 3.24 0 0 1 1.283 1.4q.445.888.444 2.072 0 1.201-.526 2.09a3.5 3.5 0 0 1-1.382 1.366 3.8 3.8 0 0 1-1.876.477zm-.296-1.481q1.069 0 1.645-.675.577-.69.577-1.778 0-1.102-.577-1.776-.56-.691-1.645-.692a2.12 2.12 0 0 0-1.58.659q-.642.641-.642 1.694v.115q0 .71.296 1.267a2.4 2.4 0 0 0 .807.872 2.1 2.1 0 0 0 1.119.313zm5.927-6.237h1.777v1.481q.263-.757.856-1.217a2.14 2.14 0 0 1 1.349-.46q.527 0 .724.098l-.247 1.794q-.149-.099-.642-.099-.774 0-1.416.494-.626.493-.626 1.58v3.883h-1.777V9.242zm9.534 7.718q-1.35 0-2.255-.526-.904-.543-1.332-1.432a4.6 4.6 0 0 1-.428-1.975q0-1.2.493-2.106a3.46 3.46 0 0 1 1.4-1.382q.889-.495 2.007-.494 1.744 0 2.584.97.855.956.856 2.7 0 .444-.05.92h-5.43q.18 1.005.708 1.45.542.443 1.497.443.79 0 1.3-.131a4 4 0 0 0 .938-.362l.542 1.267q-.411.263-1.119.46-.708.198-1.711.197zm1.596-4.558q.016-1.02-.444-1.432-.46-.428-1.316-.428-1.728 0-1.991 1.86z'/%3E%3Cpath d='M5.074 15.948a.484.657 0 0 0-.486.659v1.84a.484.657 0 0 0 .486.659h4.101a.484.657 0 0 0 .486-.659v-1.84a.484.657 0 0 0-.486-.659zm3.56 1.16H5.617v.838h3.017z' style='fill:%23fff;fill-rule:evenodd;stroke-width:1.03600001'/%3E%3Cg style='stroke-width:1.12603545'%3E%3Cpath d='M-9.408-1.416c-3.833-.025-7.056 2.912-7.08 6.615-.02 3.08 1.653 4.832 3.107 6.268.903.892 1.721 1.74 2.32 2.902l-.525-.004c-.543-.003-.992.304-1.24.639a1.87 1.87 0 0 0-.362 1.121l-.011 1.877c-.003.402.104.787.347 1.125.244.338.688.653 1.23.656l4.142.028c.542.003.99-.306 1.238-.641a1.87 1.87 0 0 0 .363-1.121l.012-1.875a1.87 1.87 0 0 0-.348-1.127c-.243-.338-.688-.653-1.23-.656l-.518-.004c.597-1.145 1.425-1.983 2.348-2.87 1.473-1.414 3.18-3.149 3.2-6.226-.016-3.59-2.923-6.684-6.993-6.707m-.006 1.1v.002c3.274.02 5.92 2.532 5.9 5.6-.017 2.706-1.39 4.026-2.863 5.44-1.034.994-2.118 2.033-2.814 3.633-.018.041-.052.055-.075.065q-.013.004-.02.01a.34.34 0 0 1-.226.084.34.34 0 0 1-.224-.086l-.092-.077c-.699-1.615-1.768-2.669-2.781-3.67-1.454-1.435-2.797-2.762-2.78-5.478.02-3.067 2.7-5.545 5.975-5.523m-.02 2.826c-1.62-.01-2.944 1.315-2.955 2.96-.01 1.646 1.295 2.988 2.916 2.999h.002c1.621.01 2.943-1.316 2.953-2.961.011-1.646-1.294-2.988-2.916-2.998m-.005 1.1c1.017.006 1.829.83 1.822 1.89s-.83 1.874-1.848 1.867c-1.018-.006-1.829-.83-1.822-1.89s.83-1.874 1.848-1.868m-2.155 11.857 4.14.025c.271.002.49.305.487.676l-.013 1.875c-.003.37-.224.67-.495.668l-4.14-.025c-.27-.002-.487-.306-.485-.676l.012-1.875c.003-.37.224-.67.494-.668' style='color:%23000;font-style:normal;font-variant:normal;font-weight:400;font-stretch:normal;font-size:medium;line-height:normal;font-family:sans-serif;font-variant-ligatures:normal;font-variant-position:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-alternates:normal;font-feature-settings:normal;text-indent:0;text-align:start;text-decoration:none;text-decoration-line:none;text-decoration-style:solid;text-decoration-color:%23000;letter-spacing:normal;word-spacing:normal;text-transform:none;writing-mode:lr-tb;direction:ltr;text-orientation:mixed;dominant-baseline:auto;baseline-shift:baseline;text-anchor:start;white-space:normal;shape-padding:0;clip-rule:evenodd;display:inline;overflow:visible;visibility:visible;opacity:1;isolation:auto;mix-blend-mode:normal;color-interpolation:sRGB;color-interpolation-filters:linearRGB;solid-color:%23000;solid-opacity:1;vector-effect:none;fill:%23000;fill-opacity:.4;fill-rule:evenodd;stroke:none;stroke-width:2.47727823;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;color-rendering:auto;image-rendering:auto;shape-rendering:auto;text-rendering:auto' transform='translate(15.553 2.85)scale(.88807)'/%3E%3Cpath d='M-9.415-.316C-12.69-.338-15.37 2.14-15.39 5.207c-.017 2.716 1.326 4.041 2.78 5.477 1.013 1 2.081 2.055 2.78 3.67l.092.076a.34.34 0 0 0 .225.086.34.34 0 0 0 .227-.083l.019-.01c.022-.009.057-.024.074-.064.697-1.6 1.78-2.64 2.814-3.634 1.473-1.414 2.847-2.733 2.864-5.44.02-3.067-2.627-5.58-5.901-5.601m-.057 8.784c1.621.011 2.944-1.315 2.955-2.96.01-1.646-1.295-2.988-2.916-2.999-1.622-.01-2.945 1.315-2.955 2.96s1.295 2.989 2.916 3' style='clip-rule:evenodd;fill:%23e1e3e9;fill-opacity:1;fill-rule:evenodd;stroke:none;stroke-width:2.47727823;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:.4' transform='translate(15.553 2.85)scale(.88807)'/%3E%3Cpath d='M-11.594 15.465c-.27-.002-.492.297-.494.668l-.012 1.876c-.003.371.214.673.485.675l4.14.027c.271.002.492-.298.495-.668l.012-1.877c.003-.37-.215-.672-.485-.674z' style='clip-rule:evenodd;fill:%23fff;fill-opacity:1;fill-rule:evenodd;stroke:none;stroke-width:2.47727823;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:.4' transform='translate(15.553 2.85)scale(.88807)'/%3E%3C/g%3E%3C/svg%3E");background-repeat:no-repeat;cursor:pointer;display:block;height:23px;margin:0 0 -4px -4px;overflow:hidden;width:88px}a.maplibregl-ctrl-logo.maplibregl-compact{width:14px}@media (forced-colors:active){a.maplibregl-ctrl-logo{background-color:transparent;background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='88' height='23' fill='none'%3E%3Cpath fill='%23000' fill-opacity='.4' fill-rule='evenodd' d='M17.408 16.796h-1.827l2.501-12.095h.198l3.324 6.533.988 2.19.988-2.19 3.258-6.533h.181l2.6 12.095h-1.81l-1.218-5.644-.362-1.71-.658 1.71-2.929 5.644h-.098l-2.914-5.644-.757-1.71-.345 1.71zm1.958-3.42-.726 3.663a1.255 1.255 0 0 1-1.232 1.011h-1.827a1.255 1.255 0 0 1-1.229-1.509l2.501-12.095a1.255 1.255 0 0 1 1.23-1.001h.197a1.25 1.25 0 0 1 1.12.685l3.19 6.273 3.125-6.263a1.25 1.25 0 0 1 1.123-.695h.181a1.255 1.255 0 0 1 1.227.991l1.443 6.71a5 5 0 0 1 .314-.787l.009-.016a4.6 4.6 0 0 1 1.777-1.887c.782-.46 1.668-.667 2.611-.667a4.6 4.6 0 0 1 1.7.32l.306.134c.21-.16.474-.256.759-.256h1.694a1.255 1.255 0 0 1 1.212.925 1.255 1.255 0 0 1 1.212-.925h1.711c.284 0 .545.094.755.252.613-.3 1.312-.45 2.075-.45 1.356 0 2.557.445 3.482 1.4q.47.48.763 1.064V4.701a1.255 1.255 0 0 1 1.255-1.255h1.86A1.255 1.255 0 0 1 54.44 4.7v9.194h2.217c.19 0 .37.043.532.118v-4.77c0-.356.147-.678.385-.906a2.42 2.42 0 0 1-.682-1.71c0-.665.267-1.253.735-1.7a2.45 2.45 0 0 1 1.722-.674 2.43 2.43 0 0 1 1.705.675q.318.302.504.683V4.7a1.255 1.255 0 0 1 1.255-1.255h1.744A1.255 1.255 0 0 1 65.812 4.7v3.335a4.8 4.8 0 0 1 1.526-.246c.938 0 1.817.214 2.59.69a4.47 4.47 0 0 1 1.67 1.743v-.98a1.255 1.255 0 0 1 1.256-1.256h1.777c.233 0 .451.064.639.174a3.4 3.4 0 0 1 1.567-.372c.346 0 .861.02 1.285.232a1.25 1.25 0 0 1 .689 1.004 4.7 4.7 0 0 1 .853-.588c.795-.44 1.675-.647 2.61-.647 1.385 0 2.65.39 3.525 1.396.836.938 1.168 2.173 1.168 3.528q-.001.515-.056 1.051a1.255 1.255 0 0 1-.947 1.09l.408.952a1.255 1.255 0 0 1-.477 1.552c-.418.268-.92.463-1.458.612-.613.171-1.304.244-2.049.244-1.06 0-2.043-.207-2.886-.698l-.015-.008c-.798-.48-1.419-1.135-1.818-1.963l-.004-.008a5.8 5.8 0 0 1-.548-2.512q0-.429.053-.843a1.3 1.3 0 0 1-.333-.086l-.166-.004c-.223 0-.426.062-.643.228-.03.024-.142.139-.142.59v3.883a1.255 1.255 0 0 1-1.256 1.256h-1.777a1.255 1.255 0 0 1-1.256-1.256V15.69l-.032.057a4.8 4.8 0 0 1-1.86 1.833 5.04 5.04 0 0 1-2.484.634 4.5 4.5 0 0 1-1.935-.424 1.25 1.25 0 0 1-.764.258h-1.71a1.255 1.255 0 0 1-1.256-1.255V7.687a2.4 2.4 0 0 1-.428.625c.253.23.412.561.412.93v7.553a1.255 1.255 0 0 1-1.256 1.255h-1.843a1.25 1.25 0 0 1-.894-.373c-.228.23-.544.373-.894.373H51.32a1.255 1.255 0 0 1-1.256-1.255v-1.251l-.061.117a4.7 4.7 0 0 1-1.782 1.884 4.77 4.77 0 0 1-2.485.67 5.6 5.6 0 0 1-1.485-.188l.009 2.764a1.255 1.255 0 0 1-1.255 1.259h-1.729a1.255 1.255 0 0 1-1.255-1.255v-3.537a1.255 1.255 0 0 1-1.167.793h-1.679a1.25 1.25 0 0 1-.77-.263 4.5 4.5 0 0 1-1.945.429c-.885 0-1.724-.21-2.495-.632l-.017-.01a5 5 0 0 1-1.081-.836 1.255 1.255 0 0 1-1.254 1.312h-1.81a1.255 1.255 0 0 1-1.228-.99l-.782-3.625-2.044 3.939a1.25 1.25 0 0 1-1.115.676h-.098a1.25 1.25 0 0 1-1.116-.68l-2.061-3.994zM35.92 16.63l.207-.114.223-.15q.493-.356.735-.785l.061-.118.033 1.332h1.678V9.242h-1.694l-.033 1.267q-.133-.329-.526-.658l-.032-.028a3.2 3.2 0 0 0-.668-.428l-.27-.12a3.3 3.3 0 0 0-1.235-.23q-1.136-.001-1.974.493a3.36 3.36 0 0 0-1.3 1.382q-.445.89-.444 2.074 0 1.2.51 2.107a3.8 3.8 0 0 0 1.382 1.381 3.9 3.9 0 0 0 1.893.477q.795 0 1.455-.33zm-2.789-5.38q-.576.675-.575 1.762 0 1.102.559 1.794.576.675 1.645.675a2.25 2.25 0 0 0 .934-.19 2.2 2.2 0 0 0 .468-.29l.178-.161a2.2 2.2 0 0 0 .397-.561q.244-.5.244-1.15v-.115q0-.708-.296-1.267l-.043-.077a2.2 2.2 0 0 0-.633-.709l-.13-.086-.047-.028a2.1 2.1 0 0 0-1.073-.285q-1.052 0-1.629.692zm2.316 2.706c.163-.17.28-.407.28-.83v-.114c0-.292-.06-.508-.15-.68a.96.96 0 0 0-.353-.389.85.85 0 0 0-.464-.127c-.4 0-.56.114-.664.239l-.01.012c-.148.174-.275.45-.275.945 0 .506.122.801.27.99.097.11.266.224.68.224.303 0 .504-.09.687-.269zm7.545 1.705a2.6 2.6 0 0 0 .331.423q.319.33.755.548l.173.074q.65.255 1.49.255 1.02 0 1.844-.493a3.45 3.45 0 0 0 1.316-1.4q.493-.904.493-2.089 0-1.909-.988-2.913-.988-1.02-2.584-1.02-.898 0-1.575.347a3 3 0 0 0-.415.262l-.199.166a3.4 3.4 0 0 0-.64.82V9.242h-1.712v11.553h1.729l-.017-5.134zm.53-1.138q.206.29.48.5l.155.11.053.034q.51.296 1.119.297 1.07 0 1.645-.675.577-.69.576-1.762 0-1.119-.576-1.777-.558-.675-1.645-.675-.435 0-.835.16a2 2 0 0 0-.284.136 2 2 0 0 0-.363.254 2.2 2.2 0 0 0-.46.569l-.082.162a2.6 2.6 0 0 0-.213 1.072v.115q0 .707.296 1.267l.135.211zm.964-.818a1.1 1.1 0 0 0 .367.385.94.94 0 0 0 .476.118c.423 0 .59-.117.687-.23.159-.194.28-.478.28-.95 0-.53-.133-.8-.266-.952l-.021-.025c-.078-.094-.231-.221-.68-.221a1 1 0 0 0-.503.135l-.012.007a.86.86 0 0 0-.335.343c-.073.133-.132.324-.132.614v.115a1.4 1.4 0 0 0 .14.66zm15.7-6.222q.347-.346.346-.856a1.05 1.05 0 0 0-.345-.79 1.18 1.18 0 0 0-.84-.329q-.51 0-.855.33a1.05 1.05 0 0 0-.346.79q0 .51.346.855.345.346.856.346.51 0 .839-.346zm4.337 9.314.033-1.332q.191.403.59.747l.098.081a4 4 0 0 0 .316.224l.223.122a3.2 3.2 0 0 0 1.44.322 3.8 3.8 0 0 0 1.875-.477 3.5 3.5 0 0 0 1.382-1.366q.527-.89.526-2.09 0-1.184-.444-2.073a3.24 3.24 0 0 0-1.283-1.399q-.823-.51-1.942-.51a3.5 3.5 0 0 0-1.527.344l-.086.043-.165.09a3 3 0 0 0-.33.214q-.432.315-.656.707a2 2 0 0 0-.099.198l.082-1.283V4.701h-1.744v12.095zm.473-2.509a2.5 2.5 0 0 0 .566.7q.117.098.245.18l.144.08a2.1 2.1 0 0 0 .975.232q1.07 0 1.645-.675.576-.69.576-1.778 0-1.102-.576-1.777-.56-.691-1.645-.692a2.2 2.2 0 0 0-1.015.235q-.22.113-.415.282l-.15.142a2.1 2.1 0 0 0-.42.594q-.223.479-.223 1.1v.115q0 .705.293 1.26zm2.616-.293c.157-.191.28-.479.28-.967 0-.51-.13-.79-.276-.961l-.021-.026c-.082-.1-.232-.225-.67-.225a.87.87 0 0 0-.681.279l-.012.011c-.154.155-.274.38-.274.807v.115c0 .285.057.499.144.669a1.1 1.1 0 0 0 .367.405c.137.082.28.123.455.123.423 0 .59-.118.686-.23zm8.266-3.013q.345-.13.724-.14l.069-.002q.493 0 .642.099l.247-1.794q-.196-.099-.717-.099a2.3 2.3 0 0 0-.545.063 2 2 0 0 0-.411.148 2.2 2.2 0 0 0-.4.249 2.5 2.5 0 0 0-.485.499 2.7 2.7 0 0 0-.32.581l-.05.137v-1.48h-1.778v7.553h1.777v-3.884q0-.546.159-.943a1.5 1.5 0 0 1 .466-.636 2.5 2.5 0 0 1 .399-.253 2 2 0 0 1 .224-.099zm9.784 2.656.05-.922q0-1.743-.856-2.698-.838-.97-2.584-.97-1.119-.001-2.007.493a3.46 3.46 0 0 0-1.4 1.382q-.493.906-.493 2.106 0 1.07.428 1.975.428.89 1.332 1.432.906.526 2.255.526.973 0 1.668-.185l.044-.012.135-.04q.613-.184.984-.421l-.542-1.267q-.3.162-.642.274l-.297.087q-.51.131-1.3.131-.954 0-1.497-.444a1.6 1.6 0 0 1-.192-.193q-.366-.44-.512-1.234l-.004-.021zm-5.427-1.256-.003.022h3.752v-.138q-.011-.727-.288-1.118a1 1 0 0 0-.156-.176q-.46-.428-1.316-.428-.986 0-1.494.604-.379.45-.494 1.234zm-27.053 2.77V4.7h-1.86v12.095h5.333V15.15zm7.103-5.908v7.553h-1.843V9.242h1.843z'/%3E%3Cpath fill='%23fff' d='m19.63 11.151-.757-1.71-.345 1.71-1.12 5.644h-1.827L18.083 4.7h.197l3.325 6.533.988 2.19.988-2.19L26.839 4.7h.181l2.6 12.095h-1.81l-1.218-5.644-.362-1.71-.658 1.71-2.93 5.644h-.098l-2.913-5.644zm14.836 5.81q-1.02 0-1.893-.478a3.8 3.8 0 0 1-1.381-1.382q-.51-.906-.51-2.106 0-1.185.444-2.074a3.36 3.36 0 0 1 1.3-1.382q.839-.494 1.974-.494a3.3 3.3 0 0 1 1.234.231 3.3 3.3 0 0 1 .97.575q.396.33.527.659l.033-1.267h1.694v7.553H37.18l-.033-1.332q-.279.593-1.02 1.053a3.17 3.17 0 0 1-1.662.444zm.296-1.482q.938 0 1.58-.642.642-.66.642-1.711v-.115q0-.708-.296-1.267a2.2 2.2 0 0 0-.807-.872 2.1 2.1 0 0 0-1.119-.313q-1.053 0-1.629.692-.575.675-.575 1.76 0 1.103.559 1.795.577.675 1.645.675zm6.521-6.237h1.711v1.4q.906-1.597 2.83-1.597 1.596 0 2.584 1.02.988 1.005.988 2.914 0 1.185-.493 2.09a3.46 3.46 0 0 1-1.316 1.399 3.5 3.5 0 0 1-1.844.493q-.954 0-1.662-.329a2.67 2.67 0 0 1-1.086-.97l.017 5.134h-1.728zm4.048 6.22q1.07 0 1.645-.674.577-.69.576-1.762 0-1.119-.576-1.777-.558-.675-1.645-.675-.592 0-1.12.296-.51.28-.822.823-.296.527-.296 1.234v.115q0 .708.296 1.267.313.543.823.855.51.296 1.119.297z'/%3E%3Cpath fill='%23e1e3e9' d='M51.325 4.7h1.86v10.45h3.473v1.646h-5.333zm7.12 4.542h1.843v7.553h-1.843zm.905-1.415a1.16 1.16 0 0 1-.856-.346 1.17 1.17 0 0 1-.346-.856 1.05 1.05 0 0 1 .346-.79q.346-.329.856-.329.494 0 .839.33a1.05 1.05 0 0 1 .345.79 1.16 1.16 0 0 1-.345.855q-.33.346-.84.346zm7.875 9.133a3.17 3.17 0 0 1-1.662-.444q-.723-.46-1.004-1.053l-.033 1.332h-1.71V4.701h1.743v4.657l-.082 1.283q.279-.658 1.086-1.119a3.5 3.5 0 0 1 1.778-.477q1.119 0 1.942.51a3.24 3.24 0 0 1 1.283 1.4q.445.888.444 2.072 0 1.201-.526 2.09a3.5 3.5 0 0 1-1.382 1.366 3.8 3.8 0 0 1-1.876.477zm-.296-1.481q1.069 0 1.645-.675.577-.69.577-1.778 0-1.102-.577-1.776-.56-.691-1.645-.692a2.12 2.12 0 0 0-1.58.659q-.642.641-.642 1.694v.115q0 .71.296 1.267a2.4 2.4 0 0 0 .807.872 2.1 2.1 0 0 0 1.119.313zm5.927-6.237h1.777v1.481q.263-.757.856-1.217a2.14 2.14 0 0 1 1.349-.46q.527 0 .724.098l-.247 1.794q-.149-.099-.642-.099-.774 0-1.416.494-.626.493-.626 1.58v3.883h-1.777V9.242zm9.534 7.718q-1.35 0-2.255-.526-.904-.543-1.332-1.432a4.6 4.6 0 0 1-.428-1.975q0-1.2.493-2.106a3.46 3.46 0 0 1 1.4-1.382q.889-.495 2.007-.494 1.744 0 2.584.97.855.956.856 2.7 0 .444-.05.92h-5.43q.18 1.005.708 1.45.542.443 1.497.443.79 0 1.3-.131a4 4 0 0 0 .938-.362l.542 1.267q-.411.263-1.119.46-.708.198-1.711.197zm1.596-4.558q.016-1.02-.444-1.432-.46-.428-1.316-.428-1.728 0-1.991 1.86z'/%3E%3Cpath d='M5.074 15.948a.484.657 0 0 0-.486.659v1.84a.484.657 0 0 0 .486.659h4.101a.484.657 0 0 0 .486-.659v-1.84a.484.657 0 0 0-.486-.659zm3.56 1.16H5.617v.838h3.017z' style='fill:%23fff;fill-rule:evenodd;stroke-width:1.03600001'/%3E%3Cg style='stroke-width:1.12603545'%3E%3Cpath d='M-9.408-1.416c-3.833-.025-7.056 2.912-7.08 6.615-.02 3.08 1.653 4.832 3.107 6.268.903.892 1.721 1.74 2.32 2.902l-.525-.004c-.543-.003-.992.304-1.24.639a1.87 1.87 0 0 0-.362 1.121l-.011 1.877c-.003.402.104.787.347 1.125.244.338.688.653 1.23.656l4.142.028c.542.003.99-.306 1.238-.641a1.87 1.87 0 0 0 .363-1.121l.012-1.875a1.87 1.87 0 0 0-.348-1.127c-.243-.338-.688-.653-1.23-.656l-.518-.004c.597-1.145 1.425-1.983 2.348-2.87 1.473-1.414 3.18-3.149 3.2-6.226-.016-3.59-2.923-6.684-6.993-6.707m-.006 1.1v.002c3.274.02 5.92 2.532 5.9 5.6-.017 2.706-1.39 4.026-2.863 5.44-1.034.994-2.118 2.033-2.814 3.633-.018.041-.052.055-.075.065q-.013.004-.02.01a.34.34 0 0 1-.226.084.34.34 0 0 1-.224-.086l-.092-.077c-.699-1.615-1.768-2.669-2.781-3.67-1.454-1.435-2.797-2.762-2.78-5.478.02-3.067 2.7-5.545 5.975-5.523m-.02 2.826c-1.62-.01-2.944 1.315-2.955 2.96-.01 1.646 1.295 2.988 2.916 2.999h.002c1.621.01 2.943-1.316 2.953-2.961.011-1.646-1.294-2.988-2.916-2.998m-.005 1.1c1.017.006 1.829.83 1.822 1.89s-.83 1.874-1.848 1.867c-1.018-.006-1.829-.83-1.822-1.89s.83-1.874 1.848-1.868m-2.155 11.857 4.14.025c.271.002.49.305.487.676l-.013 1.875c-.003.37-.224.67-.495.668l-4.14-.025c-.27-.002-.487-.306-.485-.676l.012-1.875c.003-.37.224-.67.494-.668' style='color:%23000;font-style:normal;font-variant:normal;font-weight:400;font-stretch:normal;font-size:medium;line-height:normal;font-family:sans-serif;font-variant-ligatures:normal;font-variant-position:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-alternates:normal;font-feature-settings:normal;text-indent:0;text-align:start;text-decoration:none;text-decoration-line:none;text-decoration-style:solid;text-decoration-color:%23000;letter-spacing:normal;word-spacing:normal;text-transform:none;writing-mode:lr-tb;direction:ltr;text-orientation:mixed;dominant-baseline:auto;baseline-shift:baseline;text-anchor:start;white-space:normal;shape-padding:0;clip-rule:evenodd;display:inline;overflow:visible;visibility:visible;opacity:1;isolation:auto;mix-blend-mode:normal;color-interpolation:sRGB;color-interpolation-filters:linearRGB;solid-color:%23000;solid-opacity:1;vector-effect:none;fill:%23000;fill-opacity:.4;fill-rule:evenodd;stroke:none;stroke-width:2.47727823;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;color-rendering:auto;image-rendering:auto;shape-rendering:auto;text-rendering:auto' transform='translate(15.553 2.85)scale(.88807)'/%3E%3Cpath d='M-9.415-.316C-12.69-.338-15.37 2.14-15.39 5.207c-.017 2.716 1.326 4.041 2.78 5.477 1.013 1 2.081 2.055 2.78 3.67l.092.076a.34.34 0 0 0 .225.086.34.34 0 0 0 .227-.083l.019-.01c.022-.009.057-.024.074-.064.697-1.6 1.78-2.64 2.814-3.634 1.473-1.414 2.847-2.733 2.864-5.44.02-3.067-2.627-5.58-5.901-5.601m-.057 8.784c1.621.011 2.944-1.315 2.955-2.96.01-1.646-1.295-2.988-2.916-2.999-1.622-.01-2.945 1.315-2.955 2.96s1.295 2.989 2.916 3' style='clip-rule:evenodd;fill:%23e1e3e9;fill-opacity:1;fill-rule:evenodd;stroke:none;stroke-width:2.47727823;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:.4' transform='translate(15.553 2.85)scale(.88807)'/%3E%3Cpath d='M-11.594 15.465c-.27-.002-.492.297-.494.668l-.012 1.876c-.003.371.214.673.485.675l4.14.027c.271.002.492-.298.495-.668l.012-1.877c.003-.37-.215-.672-.485-.674z' style='clip-rule:evenodd;fill:%23fff;fill-opacity:1;fill-rule:evenodd;stroke:none;stroke-width:2.47727823;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:.4' transform='translate(15.553 2.85)scale(.88807)'/%3E%3C/g%3E%3C/svg%3E")}}@media (forced-colors:active) and (prefers-color-scheme:light){a.maplibregl-ctrl-logo{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='88' height='23' fill='none'%3E%3Cpath fill='%23000' fill-opacity='.4' fill-rule='evenodd' d='M17.408 16.796h-1.827l2.501-12.095h.198l3.324 6.533.988 2.19.988-2.19 3.258-6.533h.181l2.6 12.095h-1.81l-1.218-5.644-.362-1.71-.658 1.71-2.929 5.644h-.098l-2.914-5.644-.757-1.71-.345 1.71zm1.958-3.42-.726 3.663a1.255 1.255 0 0 1-1.232 1.011h-1.827a1.255 1.255 0 0 1-1.229-1.509l2.501-12.095a1.255 1.255 0 0 1 1.23-1.001h.197a1.25 1.25 0 0 1 1.12.685l3.19 6.273 3.125-6.263a1.25 1.25 0 0 1 1.123-.695h.181a1.255 1.255 0 0 1 1.227.991l1.443 6.71a5 5 0 0 1 .314-.787l.009-.016a4.6 4.6 0 0 1 1.777-1.887c.782-.46 1.668-.667 2.611-.667a4.6 4.6 0 0 1 1.7.32l.306.134c.21-.16.474-.256.759-.256h1.694a1.255 1.255 0 0 1 1.212.925 1.255 1.255 0 0 1 1.212-.925h1.711c.284 0 .545.094.755.252.613-.3 1.312-.45 2.075-.45 1.356 0 2.557.445 3.482 1.4q.47.48.763 1.064V4.701a1.255 1.255 0 0 1 1.255-1.255h1.86A1.255 1.255 0 0 1 54.44 4.7v9.194h2.217c.19 0 .37.043.532.118v-4.77c0-.356.147-.678.385-.906a2.42 2.42 0 0 1-.682-1.71c0-.665.267-1.253.735-1.7a2.45 2.45 0 0 1 1.722-.674 2.43 2.43 0 0 1 1.705.675q.318.302.504.683V4.7a1.255 1.255 0 0 1 1.255-1.255h1.744A1.255 1.255 0 0 1 65.812 4.7v3.335a4.8 4.8 0 0 1 1.526-.246c.938 0 1.817.214 2.59.69a4.47 4.47 0 0 1 1.67 1.743v-.98a1.255 1.255 0 0 1 1.256-1.256h1.777c.233 0 .451.064.639.174a3.4 3.4 0 0 1 1.567-.372c.346 0 .861.02 1.285.232a1.25 1.25 0 0 1 .689 1.004 4.7 4.7 0 0 1 .853-.588c.795-.44 1.675-.647 2.61-.647 1.385 0 2.65.39 3.525 1.396.836.938 1.168 2.173 1.168 3.528q-.001.515-.056 1.051a1.255 1.255 0 0 1-.947 1.09l.408.952a1.255 1.255 0 0 1-.477 1.552c-.418.268-.92.463-1.458.612-.613.171-1.304.244-2.049.244-1.06 0-2.043-.207-2.886-.698l-.015-.008c-.798-.48-1.419-1.135-1.818-1.963l-.004-.008a5.8 5.8 0 0 1-.548-2.512q0-.429.053-.843a1.3 1.3 0 0 1-.333-.086l-.166-.004c-.223 0-.426.062-.643.228-.03.024-.142.139-.142.59v3.883a1.255 1.255 0 0 1-1.256 1.256h-1.777a1.255 1.255 0 0 1-1.256-1.256V15.69l-.032.057a4.8 4.8 0 0 1-1.86 1.833 5.04 5.04 0 0 1-2.484.634 4.5 4.5 0 0 1-1.935-.424 1.25 1.25 0 0 1-.764.258h-1.71a1.255 1.255 0 0 1-1.256-1.255V7.687a2.4 2.4 0 0 1-.428.625c.253.23.412.561.412.93v7.553a1.255 1.255 0 0 1-1.256 1.255h-1.843a1.25 1.25 0 0 1-.894-.373c-.228.23-.544.373-.894.373H51.32a1.255 1.255 0 0 1-1.256-1.255v-1.251l-.061.117a4.7 4.7 0 0 1-1.782 1.884 4.77 4.77 0 0 1-2.485.67 5.6 5.6 0 0 1-1.485-.188l.009 2.764a1.255 1.255 0 0 1-1.255 1.259h-1.729a1.255 1.255 0 0 1-1.255-1.255v-3.537a1.255 1.255 0 0 1-1.167.793h-1.679a1.25 1.25 0 0 1-.77-.263 4.5 4.5 0 0 1-1.945.429c-.885 0-1.724-.21-2.495-.632l-.017-.01a5 5 0 0 1-1.081-.836 1.255 1.255 0 0 1-1.254 1.312h-1.81a1.255 1.255 0 0 1-1.228-.99l-.782-3.625-2.044 3.939a1.25 1.25 0 0 1-1.115.676h-.098a1.25 1.25 0 0 1-1.116-.68l-2.061-3.994zM35.92 16.63l.207-.114.223-.15q.493-.356.735-.785l.061-.118.033 1.332h1.678V9.242h-1.694l-.033 1.267q-.133-.329-.526-.658l-.032-.028a3.2 3.2 0 0 0-.668-.428l-.27-.12a3.3 3.3 0 0 0-1.235-.23q-1.136-.001-1.974.493a3.36 3.36 0 0 0-1.3 1.382q-.445.89-.444 2.074 0 1.2.51 2.107a3.8 3.8 0 0 0 1.382 1.381 3.9 3.9 0 0 0 1.893.477q.795 0 1.455-.33zm-2.789-5.38q-.576.675-.575 1.762 0 1.102.559 1.794.576.675 1.645.675a2.25 2.25 0 0 0 .934-.19 2.2 2.2 0 0 0 .468-.29l.178-.161a2.2 2.2 0 0 0 .397-.561q.244-.5.244-1.15v-.115q0-.708-.296-1.267l-.043-.077a2.2 2.2 0 0 0-.633-.709l-.13-.086-.047-.028a2.1 2.1 0 0 0-1.073-.285q-1.052 0-1.629.692zm2.316 2.706c.163-.17.28-.407.28-.83v-.114c0-.292-.06-.508-.15-.68a.96.96 0 0 0-.353-.389.85.85 0 0 0-.464-.127c-.4 0-.56.114-.664.239l-.01.012c-.148.174-.275.45-.275.945 0 .506.122.801.27.99.097.11.266.224.68.224.303 0 .504-.09.687-.269zm7.545 1.705a2.6 2.6 0 0 0 .331.423q.319.33.755.548l.173.074q.65.255 1.49.255 1.02 0 1.844-.493a3.45 3.45 0 0 0 1.316-1.4q.493-.904.493-2.089 0-1.909-.988-2.913-.988-1.02-2.584-1.02-.898 0-1.575.347a3 3 0 0 0-.415.262l-.199.166a3.4 3.4 0 0 0-.64.82V9.242h-1.712v11.553h1.729l-.017-5.134zm.53-1.138q.206.29.48.5l.155.11.053.034q.51.296 1.119.297 1.07 0 1.645-.675.577-.69.576-1.762 0-1.119-.576-1.777-.558-.675-1.645-.675-.435 0-.835.16a2 2 0 0 0-.284.136 2 2 0 0 0-.363.254 2.2 2.2 0 0 0-.46.569l-.082.162a2.6 2.6 0 0 0-.213 1.072v.115q0 .707.296 1.267l.135.211zm.964-.818a1.1 1.1 0 0 0 .367.385.94.94 0 0 0 .476.118c.423 0 .59-.117.687-.23.159-.194.28-.478.28-.95 0-.53-.133-.8-.266-.952l-.021-.025c-.078-.094-.231-.221-.68-.221a1 1 0 0 0-.503.135l-.012.007a.86.86 0 0 0-.335.343c-.073.133-.132.324-.132.614v.115a1.4 1.4 0 0 0 .14.66zm15.7-6.222q.347-.346.346-.856a1.05 1.05 0 0 0-.345-.79 1.18 1.18 0 0 0-.84-.329q-.51 0-.855.33a1.05 1.05 0 0 0-.346.79q0 .51.346.855.345.346.856.346.51 0 .839-.346zm4.337 9.314.033-1.332q.191.403.59.747l.098.081a4 4 0 0 0 .316.224l.223.122a3.2 3.2 0 0 0 1.44.322 3.8 3.8 0 0 0 1.875-.477 3.5 3.5 0 0 0 1.382-1.366q.527-.89.526-2.09 0-1.184-.444-2.073a3.24 3.24 0 0 0-1.283-1.399q-.823-.51-1.942-.51a3.5 3.5 0 0 0-1.527.344l-.086.043-.165.09a3 3 0 0 0-.33.214q-.432.315-.656.707a2 2 0 0 0-.099.198l.082-1.283V4.701h-1.744v12.095zm.473-2.509a2.5 2.5 0 0 0 .566.7q.117.098.245.18l.144.08a2.1 2.1 0 0 0 .975.232q1.07 0 1.645-.675.576-.69.576-1.778 0-1.102-.576-1.777-.56-.691-1.645-.692a2.2 2.2 0 0 0-1.015.235q-.22.113-.415.282l-.15.142a2.1 2.1 0 0 0-.42.594q-.223.479-.223 1.1v.115q0 .705.293 1.26zm2.616-.293c.157-.191.28-.479.28-.967 0-.51-.13-.79-.276-.961l-.021-.026c-.082-.1-.232-.225-.67-.225a.87.87 0 0 0-.681.279l-.012.011c-.154.155-.274.38-.274.807v.115c0 .285.057.499.144.669a1.1 1.1 0 0 0 .367.405c.137.082.28.123.455.123.423 0 .59-.118.686-.23zm8.266-3.013q.345-.13.724-.14l.069-.002q.493 0 .642.099l.247-1.794q-.196-.099-.717-.099a2.3 2.3 0 0 0-.545.063 2 2 0 0 0-.411.148 2.2 2.2 0 0 0-.4.249 2.5 2.5 0 0 0-.485.499 2.7 2.7 0 0 0-.32.581l-.05.137v-1.48h-1.778v7.553h1.777v-3.884q0-.546.159-.943a1.5 1.5 0 0 1 .466-.636 2.5 2.5 0 0 1 .399-.253 2 2 0 0 1 .224-.099zm9.784 2.656.05-.922q0-1.743-.856-2.698-.838-.97-2.584-.97-1.119-.001-2.007.493a3.46 3.46 0 0 0-1.4 1.382q-.493.906-.493 2.106 0 1.07.428 1.975.428.89 1.332 1.432.906.526 2.255.526.973 0 1.668-.185l.044-.012.135-.04q.613-.184.984-.421l-.542-1.267q-.3.162-.642.274l-.297.087q-.51.131-1.3.131-.954 0-1.497-.444a1.6 1.6 0 0 1-.192-.193q-.366-.44-.512-1.234l-.004-.021zm-5.427-1.256-.003.022h3.752v-.138q-.011-.727-.288-1.118a1 1 0 0 0-.156-.176q-.46-.428-1.316-.428-.986 0-1.494.604-.379.45-.494 1.234zm-27.053 2.77V4.7h-1.86v12.095h5.333V15.15zm7.103-5.908v7.553h-1.843V9.242h1.843z'/%3E%3Cpath fill='%23fff' d='m19.63 11.151-.757-1.71-.345 1.71-1.12 5.644h-1.827L18.083 4.7h.197l3.325 6.533.988 2.19.988-2.19L26.839 4.7h.181l2.6 12.095h-1.81l-1.218-5.644-.362-1.71-.658 1.71-2.93 5.644h-.098l-2.913-5.644zm14.836 5.81q-1.02 0-1.893-.478a3.8 3.8 0 0 1-1.381-1.382q-.51-.906-.51-2.106 0-1.185.444-2.074a3.36 3.36 0 0 1 1.3-1.382q.839-.494 1.974-.494a3.3 3.3 0 0 1 1.234.231 3.3 3.3 0 0 1 .97.575q.396.33.527.659l.033-1.267h1.694v7.553H37.18l-.033-1.332q-.279.593-1.02 1.053a3.17 3.17 0 0 1-1.662.444zm.296-1.482q.938 0 1.58-.642.642-.66.642-1.711v-.115q0-.708-.296-1.267a2.2 2.2 0 0 0-.807-.872 2.1 2.1 0 0 0-1.119-.313q-1.053 0-1.629.692-.575.675-.575 1.76 0 1.103.559 1.795.577.675 1.645.675zm6.521-6.237h1.711v1.4q.906-1.597 2.83-1.597 1.596 0 2.584 1.02.988 1.005.988 2.914 0 1.185-.493 2.09a3.46 3.46 0 0 1-1.316 1.399 3.5 3.5 0 0 1-1.844.493q-.954 0-1.662-.329a2.67 2.67 0 0 1-1.086-.97l.017 5.134h-1.728zm4.048 6.22q1.07 0 1.645-.674.577-.69.576-1.762 0-1.119-.576-1.777-.558-.675-1.645-.675-.592 0-1.12.296-.51.28-.822.823-.296.527-.296 1.234v.115q0 .708.296 1.267.313.543.823.855.51.296 1.119.297z'/%3E%3Cpath fill='%23e1e3e9' d='M51.325 4.7h1.86v10.45h3.473v1.646h-5.333zm7.12 4.542h1.843v7.553h-1.843zm.905-1.415a1.16 1.16 0 0 1-.856-.346 1.17 1.17 0 0 1-.346-.856 1.05 1.05 0 0 1 .346-.79q.346-.329.856-.329.494 0 .839.33a1.05 1.05 0 0 1 .345.79 1.16 1.16 0 0 1-.345.855q-.33.346-.84.346zm7.875 9.133a3.17 3.17 0 0 1-1.662-.444q-.723-.46-1.004-1.053l-.033 1.332h-1.71V4.701h1.743v4.657l-.082 1.283q.279-.658 1.086-1.119a3.5 3.5 0 0 1 1.778-.477q1.119 0 1.942.51a3.24 3.24 0 0 1 1.283 1.4q.445.888.444 2.072 0 1.201-.526 2.09a3.5 3.5 0 0 1-1.382 1.366 3.8 3.8 0 0 1-1.876.477zm-.296-1.481q1.069 0 1.645-.675.577-.69.577-1.778 0-1.102-.577-1.776-.56-.691-1.645-.692a2.12 2.12 0 0 0-1.58.659q-.642.641-.642 1.694v.115q0 .71.296 1.267a2.4 2.4 0 0 0 .807.872 2.1 2.1 0 0 0 1.119.313zm5.927-6.237h1.777v1.481q.263-.757.856-1.217a2.14 2.14 0 0 1 1.349-.46q.527 0 .724.098l-.247 1.794q-.149-.099-.642-.099-.774 0-1.416.494-.626.493-.626 1.58v3.883h-1.777V9.242zm9.534 7.718q-1.35 0-2.255-.526-.904-.543-1.332-1.432a4.6 4.6 0 0 1-.428-1.975q0-1.2.493-2.106a3.46 3.46 0 0 1 1.4-1.382q.889-.495 2.007-.494 1.744 0 2.584.97.855.956.856 2.7 0 .444-.05.92h-5.43q.18 1.005.708 1.45.542.443 1.497.443.79 0 1.3-.131a4 4 0 0 0 .938-.362l.542 1.267q-.411.263-1.119.46-.708.198-1.711.197zm1.596-4.558q.016-1.02-.444-1.432-.46-.428-1.316-.428-1.728 0-1.991 1.86z'/%3E%3Cpath d='M5.074 15.948a.484.657 0 0 0-.486.659v1.84a.484.657 0 0 0 .486.659h4.101a.484.657 0 0 0 .486-.659v-1.84a.484.657 0 0 0-.486-.659zm3.56 1.16H5.617v.838h3.017z' style='fill:%23fff;fill-rule:evenodd;stroke-width:1.03600001'/%3E%3Cg style='stroke-width:1.12603545'%3E%3Cpath d='M-9.408-1.416c-3.833-.025-7.056 2.912-7.08 6.615-.02 3.08 1.653 4.832 3.107 6.268.903.892 1.721 1.74 2.32 2.902l-.525-.004c-.543-.003-.992.304-1.24.639a1.87 1.87 0 0 0-.362 1.121l-.011 1.877c-.003.402.104.787.347 1.125.244.338.688.653 1.23.656l4.142.028c.542.003.99-.306 1.238-.641a1.87 1.87 0 0 0 .363-1.121l.012-1.875a1.87 1.87 0 0 0-.348-1.127c-.243-.338-.688-.653-1.23-.656l-.518-.004c.597-1.145 1.425-1.983 2.348-2.87 1.473-1.414 3.18-3.149 3.2-6.226-.016-3.59-2.923-6.684-6.993-6.707m-.006 1.1v.002c3.274.02 5.92 2.532 5.9 5.6-.017 2.706-1.39 4.026-2.863 5.44-1.034.994-2.118 2.033-2.814 3.633-.018.041-.052.055-.075.065q-.013.004-.02.01a.34.34 0 0 1-.226.084.34.34 0 0 1-.224-.086l-.092-.077c-.699-1.615-1.768-2.669-2.781-3.67-1.454-1.435-2.797-2.762-2.78-5.478.02-3.067 2.7-5.545 5.975-5.523m-.02 2.826c-1.62-.01-2.944 1.315-2.955 2.96-.01 1.646 1.295 2.988 2.916 2.999h.002c1.621.01 2.943-1.316 2.953-2.961.011-1.646-1.294-2.988-2.916-2.998m-.005 1.1c1.017.006 1.829.83 1.822 1.89s-.83 1.874-1.848 1.867c-1.018-.006-1.829-.83-1.822-1.89s.83-1.874 1.848-1.868m-2.155 11.857 4.14.025c.271.002.49.305.487.676l-.013 1.875c-.003.37-.224.67-.495.668l-4.14-.025c-.27-.002-.487-.306-.485-.676l.012-1.875c.003-.37.224-.67.494-.668' style='color:%23000;font-style:normal;font-variant:normal;font-weight:400;font-stretch:normal;font-size:medium;line-height:normal;font-family:sans-serif;font-variant-ligatures:normal;font-variant-position:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-alternates:normal;font-feature-settings:normal;text-indent:0;text-align:start;text-decoration:none;text-decoration-line:none;text-decoration-style:solid;text-decoration-color:%23000;letter-spacing:normal;word-spacing:normal;text-transform:none;writing-mode:lr-tb;direction:ltr;text-orientation:mixed;dominant-baseline:auto;baseline-shift:baseline;text-anchor:start;white-space:normal;shape-padding:0;clip-rule:evenodd;display:inline;overflow:visible;visibility:visible;opacity:1;isolation:auto;mix-blend-mode:normal;color-interpolation:sRGB;color-interpolation-filters:linearRGB;solid-color:%23000;solid-opacity:1;vector-effect:none;fill:%23000;fill-opacity:.4;fill-rule:evenodd;stroke:none;stroke-width:2.47727823;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;color-rendering:auto;image-rendering:auto;shape-rendering:auto;text-rendering:auto' transform='translate(15.553 2.85)scale(.88807)'/%3E%3Cpath d='M-9.415-.316C-12.69-.338-15.37 2.14-15.39 5.207c-.017 2.716 1.326 4.041 2.78 5.477 1.013 1 2.081 2.055 2.78 3.67l.092.076a.34.34 0 0 0 .225.086.34.34 0 0 0 .227-.083l.019-.01c.022-.009.057-.024.074-.064.697-1.6 1.78-2.64 2.814-3.634 1.473-1.414 2.847-2.733 2.864-5.44.02-3.067-2.627-5.58-5.901-5.601m-.057 8.784c1.621.011 2.944-1.315 2.955-2.96.01-1.646-1.295-2.988-2.916-2.999-1.622-.01-2.945 1.315-2.955 2.96s1.295 2.989 2.916 3' style='clip-rule:evenodd;fill:%23e1e3e9;fill-opacity:1;fill-rule:evenodd;stroke:none;stroke-width:2.47727823;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:.4' transform='translate(15.553 2.85)scale(.88807)'/%3E%3Cpath d='M-11.594 15.465c-.27-.002-.492.297-.494.668l-.012 1.876c-.003.371.214.673.485.675l4.14.027c.271.002.492-.298.495-.668l.012-1.877c.003-.37-.215-.672-.485-.674z' style='clip-rule:evenodd;fill:%23fff;fill-opacity:1;fill-rule:evenodd;stroke:none;stroke-width:2.47727823;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:.4' transform='translate(15.553 2.85)scale(.88807)'/%3E%3C/g%3E%3C/svg%3E")}}.maplibregl-ctrl.maplibregl-ctrl-attrib{background-color:hsla(0,0%,100%,.5);margin:0;padding:0 5px}@media screen{.maplibregl-ctrl-attrib.maplibregl-compact{background-color:#fff;border-radius:12px;box-sizing:content-box;color:#000;margin:10px;min-height:20px;padding:2px 24px 2px 0;position:relative}.maplibregl-ctrl-attrib.maplibregl-compact-show{padding:2px 28px 2px 8px;visibility:visible}.maplibregl-ctrl-bottom-left>.maplibregl-ctrl-attrib.maplibregl-compact-show,.maplibregl-ctrl-top-left>.maplibregl-ctrl-attrib.maplibregl-compact-show{border-radius:12px;padding:2px 8px 2px 28px}.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-inner{display:none}.maplibregl-ctrl-attrib-button{background-color:hsla(0,0%,100%,.5);background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill-rule='evenodd' viewBox='0 0 20 20'%3E%3Cpath d='M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0'/%3E%3C/svg%3E");border:0;border-radius:12px;box-sizing:border-box;cursor:pointer;display:none;height:24px;outline:none;position:absolute;right:0;top:0;width:24px}.maplibregl-ctrl-attrib summary.maplibregl-ctrl-attrib-button{-webkit-appearance:none;-moz-appearance:none;appearance:none;list-style:none}.maplibregl-ctrl-attrib summary.maplibregl-ctrl-attrib-button::-webkit-details-marker{display:none}.maplibregl-ctrl-bottom-left .maplibregl-ctrl-attrib-button,.maplibregl-ctrl-top-left .maplibregl-ctrl-attrib-button{left:0}.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button,.maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-inner{display:block}.maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button{background-color:rgb(0 0 0/5%)}.maplibregl-ctrl-bottom-right>.maplibregl-ctrl-attrib.maplibregl-compact:after{bottom:0;right:0}.maplibregl-ctrl-top-right>.maplibregl-ctrl-attrib.maplibregl-compact:after{right:0;top:0}.maplibregl-ctrl-top-left>.maplibregl-ctrl-attrib.maplibregl-compact:after{left:0;top:0}.maplibregl-ctrl-bottom-left>.maplibregl-ctrl-attrib.maplibregl-compact:after{bottom:0;left:0}}@media screen and (forced-colors:active){.maplibregl-ctrl-attrib.maplibregl-compact:after{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='%23fff' fill-rule='evenodd' viewBox='0 0 20 20'%3E%3Cpath d='M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0'/%3E%3C/svg%3E")}}@media screen and (forced-colors:active) and (prefers-color-scheme:light){.maplibregl-ctrl-attrib.maplibregl-compact:after{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill-rule='evenodd' viewBox='0 0 20 20'%3E%3Cpath d='M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0'/%3E%3C/svg%3E")}}.maplibregl-ctrl-attrib a{color:rgba(0,0,0,.75);text-decoration:none}.maplibregl-ctrl-attrib a:hover{color:inherit;text-decoration:underline}.maplibregl-attrib-empty{display:none}.maplibregl-ctrl-scale{background-color:hsla(0,0%,100%,.75);border:2px solid #333;border-top:#333;box-sizing:border-box;color:#333;font-size:10px;padding:0 5px}.maplibregl-popup{display:flex;left:0;pointer-events:none;position:absolute;top:0;will-change:transform}.maplibregl-popup-anchor-top,.maplibregl-popup-anchor-top-left,.maplibregl-popup-anchor-top-right{flex-direction:column}.maplibregl-popup-anchor-bottom,.maplibregl-popup-anchor-bottom-left,.maplibregl-popup-anchor-bottom-right{flex-direction:column-reverse}.maplibregl-popup-anchor-left{flex-direction:row}.maplibregl-popup-anchor-right{flex-direction:row-reverse}.maplibregl-popup-tip{border:10px solid transparent;height:0;width:0;z-index:1}.maplibregl-popup-anchor-top .maplibregl-popup-tip{align-self:center;border-bottom-color:#fff;border-top:none}.maplibregl-popup-anchor-top-left .maplibregl-popup-tip{align-self:flex-start;border-bottom-color:#fff;border-left:none;border-top:none}.maplibregl-popup-anchor-top-right .maplibregl-popup-tip{align-self:flex-end;border-bottom-color:#fff;border-right:none;border-top:none}.maplibregl-popup-anchor-bottom .maplibregl-popup-tip{align-self:center;border-bottom:none;border-top-color:#fff}.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip{align-self:flex-start;border-bottom:none;border-left:none;border-top-color:#fff}.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip{align-self:flex-end;border-bottom:none;border-right:none;border-top-color:#fff}.maplibregl-popup-anchor-left .maplibregl-popup-tip{align-self:center;border-left:none;border-right-color:#fff}.maplibregl-popup-anchor-right .maplibregl-popup-tip{align-self:center;border-left-color:#fff;border-right:none}.maplibregl-popup-close-button{background-color:transparent;border:0;border-radius:0 3px 0 0;cursor:pointer;position:absolute;right:0;top:0}.maplibregl-popup-close-button:hover{background-color:rgb(0 0 0/5%)}.maplibregl-popup-content{background:#fff;border-radius:3px;box-shadow:0 1px 2px rgba(0,0,0,.1);padding:15px 10px;pointer-events:auto;position:relative}.maplibregl-popup-anchor-top-left .maplibregl-popup-content{border-top-left-radius:0}.maplibregl-popup-anchor-top-right .maplibregl-popup-content{border-top-right-radius:0}.maplibregl-popup-anchor-bottom-left .maplibregl-popup-content{border-bottom-left-radius:0}.maplibregl-popup-anchor-bottom-right .maplibregl-popup-content{border-bottom-right-radius:0}.maplibregl-popup-track-pointer{display:none}.maplibregl-popup-track-pointer *{pointer-events:none;-webkit-user-select:none;-moz-user-select:none;user-select:none}.maplibregl-map:hover .maplibregl-popup-track-pointer{display:flex}.maplibregl-map:active .maplibregl-popup-track-pointer{display:none}.maplibregl-marker{left:0;position:absolute;top:0;transition:opacity .2s;will-change:transform}.maplibregl-user-location-dot,.maplibregl-user-location-dot:before{background-color:#1da1f2;border-radius:50%;height:15px;width:15px}.maplibregl-user-location-dot:before{animation:maplibregl-user-location-dot-pulse 2s infinite;content:"";position:absolute}.maplibregl-user-location-dot:after{border:2px solid #fff;border-radius:50%;box-shadow:0 0 3px rgba(0,0,0,.35);box-sizing:border-box;content:"";height:19px;left:-2px;position:absolute;top:-2px;width:19px}@keyframes maplibregl-user-location-dot-pulse{0%{opacity:1;transform:scale(1)}70%{opacity:0;transform:scale(3)}to{opacity:0;transform:scale(1)}}.maplibregl-user-location-dot-stale{background-color:#aaa}.maplibregl-user-location-dot-stale:after{display:none}.maplibregl-user-location-accuracy-circle{background-color:#1da1f233;border-radius:100%;height:1px;width:1px}.maplibregl-crosshair,.maplibregl-crosshair .maplibregl-interactive,.maplibregl-crosshair .maplibregl-interactive:active{cursor:crosshair}.maplibregl-boxzoom{background:#fff;border:2px dotted #202020;height:0;left:0;opacity:.5;position:absolute;top:0;width:0}.maplibregl-cooperative-gesture-screen{align-items:center;background:rgba(0,0,0,.4);color:#fff;display:flex;font-size:1.4em;inset:0;justify-content:center;line-height:1.2;opacity:0;padding:1rem;pointer-events:none;position:absolute;transition:opacity 1s ease 1s;z-index:99999}.maplibregl-cooperative-gesture-screen.maplibregl-show{opacity:1;transition:opacity .05s}.maplibregl-cooperative-gesture-screen .maplibregl-mobile-message{display:none}@media (hover:none),(width <= 480px){.maplibregl-cooperative-gesture-screen .maplibregl-desktop-message{display:none}.maplibregl-cooperative-gesture-screen .maplibregl-mobile-message{display:block}}.maplibregl-pseudo-fullscreen{height:100%!important;left:0!important;position:fixed!important;top:0!important;width:100%!important;z-index:99999}
+</style>
+
+<div id="map" aria-label="臺北市的 3D 建物與地形"></div>
+<div class="panel" id="panel" role="region" aria-label="時間、模式與建物資訊">
+  <button type="button" class="handle" id="fold" aria-controls="panel-inner" aria-expanded="true" aria-label="收起面板" title="收起面板">
+    <svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true"><path d="M7 2 2 8l5 6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+  </button>
+  <div class="inner" id="panel-inner">
+  <div class="head">
+    <h1>臺北光影試作</h1>
+    <span class="note" id="status">資料載入中…</span>
+  </div>
+  <div class="body" id="panel-body">
+    <p class="sub">臺北市全市。地形是內政部 20 m 數值地形模型，地面照國土利用現況調查，太陽位置照臺北的真實日期時間計算。放大到街區就會出現建物和樹。</p>
+    <div class="seg" role="group" aria-label="日期">
+      <button type="button" data-day="today" aria-pressed="true">今天</button>
+      <button type="button" data-day="0321" aria-pressed="false">春分</button>
+      <button type="button" data-day="0621" aria-pressed="false">夏至</button>
+      <button type="button" data-day="1222" aria-pressed="false">冬至</button>
+    </div>
+    <div>
+      <span class="lab" id="time-label">時刻</span>
+      <div class="row">
+        <input type="range" id="time" min="300" max="1170" step="5" value="900" aria-labelledby="time-label">
+        <output id="time-out" for="time">15:00</output>
+      </div>
+      <div class="note" id="sun-out">　</div>
+    </div>
+    <div class="seg" role="group" aria-label="建物上色">
+      <button type="button" id="mode-real" aria-pressed="true">寫實</button>
+      <button type="button" id="mode-height" aria-pressed="false">依高度</button>
+    </div>
+    <div class="row">
+      <label class="chk"><input type="checkbox" id="floors" checked>樓層線</label>
+      <label class="chk"><input type="checkbox" id="trees" checked>行道樹</label>
+      <label class="chk"><input type="checkbox" id="shadow" checked>影子</label>
+    </div>
+    <div class="info" id="info"></div>
+    <details class="src">
+      <summary>資料來源與示意的部分</summary>
+      <ul>
+        <li>建物輪廓和高度：臺北市建管處套繪圖與使用執照、OpenStreetMap、內政部實價登錄。</li>
+        <li>地形：內政部 20 m 數值地形模型（2026）。地面的道路、公園、林地、水面：內政部國土利用現況調查。</li>
+        <li>一般建物的外牆顏色、窗戶、陽台、鐵窗、一樓店面，是依國土利用現況調查的用途、使照的完工年份和層數推測的示意，不是每一棟實際的樣子；牆上的橫線是樓層，依每棟的層數畫。</li>
+        <li>為了手機也跑得動，建物和樹只載畫面附近約 2.5 km 內的，更遠的地方只有地形和地面。</li>
+        <li>台北 101 和國父紀念館是依公開資料做的簡化模型，取代 OSM 的量體。101 的高度、分節和外牆斜度有出處（CTBUH、交通部觀光署），逐層高度是平均推算；國父紀念館只有高 30.4 m、每邊 100 m 有出處（文化部），屋簷和起翹的高度是估計。點模型可以看到出處連結。</li>
+        <li>高架道路和捷運：OpenStreetMap。橋面高度沒有公開資料，依 OSM 的 layer 推估，每一層約 6 m。</li>
+        <li>路面（目前只有國父紀念館四周）：車道和人行道的範圍、行人穿越道線、網狀線、機車待轉區是臺北市政府的資料（寬度超過 8 公尺道路、人行道範圍、圖形標線，臺北市資料大平臺），分隔島取自國土測繪中心通用版電子地圖。車道線依 OpenStreetMap 的車道數把車道平均分開，停止線依標線設置規則放在行人穿越道前 2 m，跟現場的位置可能差一兩公尺。柏油的深淺依新工處的路面更新期程，近幾年重鋪的比較黑。國父紀念館園區的草地、花園、水池、停車場和停車格是 OpenStreetMap 的面，園區裡剩下的地方畫成鋪面；園區裡臺北市樹木資料沒有的樹用 OpenStreetMap 的位置，樹種和樹高沒有資料，畫成一般 8 m 高的樹。路燈、號誌、標誌、車阻、公車站牌、郵筒、候車亭、座椅等街道設施的位置是臺北市的資料（路燈位置分布圖、人行道固定設施物），路燈的高度也是資料，其他的尺寸和顏色是示意。</li>
+        <li>行道樹：臺北市行道樹及公園樹木，位置、樹種、樹高、胸徑都是調查資料。樹形依樹種分五類，各樹種綠色的深淺也是示意。臺灣欒樹 9–10 月開黃花、11–12 月蒴果轉紅褐（新北市景觀處）。</li>
+        <li id="photo-credits" hidden></li>
+        <li id="material-credits" hidden></li>
+      </ul>
+    </details>
+  </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/deck.gl@9.3.12/dist.min.js"></script>
+<script>
+(function () {
+  const {MapboxOverlay, SolidPolygonLayer, SimpleMeshLayer, PathLayer, TileLayer, LightingEffect, AmbientLight, DirectionalLight, LayerExtension} = deck;
+  const SunLight = deck._SunLight;
+  const TZ = 8;                                       // 臺北 UTC+8
+  const CENTER = [121.5645, 25.0335];
+  const TERRAIN = true;
+  const M_LAT = 110540, M_LON = 111320 * Math.cos(CENTER[1] * Math.PI / 180);   // 每度幾公尺
+  const SOURCE = {
+    0: '使照上的建物高度', 1: '本棟每層平均高度 × 層數', 2: '使照層數 × 全市每層樓高中位數',
+    3: '使照逐層高度加總', 4: '使照上的建物高度（每層超過 6 m，未驗證）', 5: 'OpenStreetMap 標的建物高度',
+    6: 'OpenStreetMap 標的層數 × 每層樓高中位數', 7: 'AI 推估的層數 × 每層樓高中位數', 8: 'OpenStreetMap 標的遮雨棚',
+    9: '依 OpenStreetMap 的建物類型當成一層', 10: '實價登錄的總樓層數 × 每層樓高中位數',
+    11: 'OpenStreetMap 標的高度（層數取自實價登錄）'
+  };
+  // 國土利用現況調查的代碼名稱（國土利用現況調查辦法附表一）
+  const LANDUSE = {
+    '050101': '零售批發', '050102': '服務業', '050200': '純住宅', '050301': '兼工業使用住宅', '050302': '兼商業使用住宅',
+    '050303': '兼其他使用住宅', '050400': '製造業', '050500': '倉儲', '050600': '宗教', '050700': '殯葬設施',
+    '050801': '興建中', '050802': '其他建築用地', '060100': '政府機關', '060201': '幼兒園', '060202': '小學',
+    '060203': '中學', '060204': '大專校院', '060205': '特種學校', '060300': '醫療保健', '060400': '社會福利設施',
+    '0605': '公用設備', '060600': '環保設施', '0701': '文化設施', '070200': '公園綠地廣場', '070301': '遊樂場所',
+    '070302': '體育場所', '0305': '道路及相關設施', '0304': '捷運及相關設施', '0302': '一般鐵路及相關設施',
+    '0401': '河道及溝渠', '0404': '水利構造物', '01': '農業利用土地', '02': '森林利用土地', '09': '其他利用土地'
+  };
+  const landuseName = c => { if (!c) return ''; for (const k of [c, c.slice(0, 4), c.slice(0, 2)]) if (LANDUSE[k]) return LANDUSE[k]; return c; };
+  // 場景顏色：白天的寫實配色，跟面板主題無關
+  const SCENE = {
+    ground: '#e3e1db', farm: '#dde1c2', forest: '#a6c398', grass: '#cfe0bb', bare: '#e5dbc9', park: '#c3daac',
+    sports: '#b3d29d', rail: '#d0cbc3', road: '#c1c4c5', water: '#9cc1d5', crossing: '#f6f6f2',
+    roadMajor: '#c6c8c9', roadMinor: '#cfd1d1', roadLane: '#d8d9d8', wall: [242, 238, 231],
+    bridge: [214, 212, 206], trunk: [108, 96, 84], palmTrunk: [176, 168, 154],
+    ramp: [[212, 230, 229], [163, 201, 200], [106, 163, 165], [57, 124, 128], [28, 79, 83]]
+  };
+  // 真實感的幾項效果，網址加 ?fx=light,ao,mat,bld 可以只開其中幾項（fx= 留空就是原本的畫法），前後對照和量效能用：
+  //   light 光線和大氣、ao 環境光遮蔽、mat 玻璃和金屬、bld 一般建物的外牆和屋頂、roof 頂樓加蓋和水塔（示意的幾何，要 bld 一起開）、
+  //   tex 地標的照片取樣材質（lmmat：屋瓦、磚牆、石材的照片做成可重複的貼圖，依頂點顏色換上去）
+  // （artifact 的網址帶不了 ?參數，發布出去的頁面一律是預設值：roof 以外全開）
+  // 預設不開 roof：頂樓的鐵皮加蓋和水塔是亂數擺的示意幾何，不是資料（畫面上的建物形狀都要有出處）；本機要看可以加 ?fx=...,roof
+  const FX = new Set((new URLSearchParams(location.search).get('fx') ?? 'light,ao,mat,bld,tex').split(',').filter(Boolean));
+  const el = (tag, text, cls) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; };
+  function jitter(seed) { const x = Math.sin(seed * 12.9898) * 43758.5453; return x - Math.floor(x); }
+
+  // ---------- 太陽位置（NOAA 算法，給面板顯示用；deck.gl 的 SunLight 自己會算） ----------
+  function sunPosition(date, lat, lon) {
+    const rad = Math.PI / 180;
+    const jd = date.getTime() / 86400000 + 2440587.5;
+    const n = jd - 2451545.0;
+    const L = (280.460 + 0.9856474 * n) % 360;
+    const g = ((357.528 + 0.9856003 * n) % 360) * rad;
+    const lambda = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad;
+    const eps = (23.439 - 0.0000004 * n) * rad;
+    const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
+    const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
+    const gmst = (18.697374558 + 24.06570982441908 * n) % 24;
+    const ha = ((gmst * 15 + lon) * rad - ra);
+    const alt = Math.asin(Math.sin(lat * rad) * Math.sin(dec) + Math.cos(lat * rad) * Math.cos(dec) * Math.cos(ha));
+    const az = Math.atan2(-Math.sin(ha), Math.tan(dec) * Math.cos(lat * rad) - Math.sin(lat * rad) * Math.cos(ha));
+    return { alt: alt / rad, az: ((az / rad) + 360) % 360 };
+  }
+
+  // ---------- 狀態 ----------
+  let day = 'today';
+  let minutes = 900;
+  let mode = 'real';
+  let showFloors = true, showTrees = true, showShadow = true;
+  let selected = null, selectedLm = -1;             // 點到的建物 {tile: 圖磚 id, index: 那塊裡的序號}、地標（landmarks 的序號）
+  let landmarks = [], replaced = new Set();          // 地標、被地標取代的 OSM 編號和使照號碼
+  let tileSet = null;                                 // 有建物或樹的圖磚 "x/y"（data/tiles/index.json）
+  let renderCount = 0;                                // 每次 render 加一，讓每塊圖磚的圖層跟著更新
+  let month = 0;
+
+  function stamp() {
+    const now = new Date();
+    let y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
+    if (day !== 'today') { m = Number(day.slice(0, 2)) - 1; d = Number(day.slice(2)); }
+    return Date.UTC(y, m, d, 0, minutes) - TZ * 3600000;
+  }
+
+  // ---------- 外牆：牆腳環境遮蔽、屋頂邊、樓層線（都畫在 shader 裡，不加幾何） ----------
+  // 每棟的設定借 lineColors 傳進 shader（這個圖層沒用到線框）：
+  //   r = 層高 × 10（0–25.5 m）；b = 屋頂畫成水泥灰（255）或跟牆同色（0）
+  const FACADE_VARS = 'float vFloorH; float vStorey; float vTop; float vSide; float vRoof;' +
+    (FX.has('bld') ? ' float vWallU; float vWallLen; float vLook; float vSeed; vec3 vAlbedo; vec3 vNrm; vec3 vView;' : '');
+  const FACADE_BLOCK = 'layout(std140) uniform facadeUniforms {\n  float enabled;\n  float night;\n} facade;\n';
+  // fx=bld：窗、陽台、鐵窗、店面都畫在著色器裡，不加幾何。沿牆的位置（公尺）用這段牆兩端的共用座標算長度；
+  // 光照（deck.gl 在頂點算好的）= 這裡拿到的顏色 ÷ 牆的原色，窗和陽台的顏色乘上同樣的光照。
+  // 一層樓在畫面上小於 3–10 像素時，窗格淡出成「牆色和玻璃色依面積混合」的平均色，遠看不會閃、也不會比近看亮
+  const BLD_VS = FX.has('bld') ? [
+    '#ifdef IS_SIDE_VERTEX',
+    '  vWallLen = length(nextVertexPositions.xy - vertexPositions.xy) / project.commonUnitsPerMeter.x;',
+    '  vWallU = positions.x * vWallLen;',
+    '#else',
+    '  vWallLen = 0.0; vWallU = 0.0;',
+    '#endif',
+    '  vLook = floor(lineColors.g * 255.0 + 0.5); vSeed = lineColors.a; vAlbedo = fillColors.rgb;',
+    '  vNrm = geometry.normal; vView = geometry.position.xyz - project.cameraPosition;'
+  ].join('\n') : '';
+  const BLD_FS_HEAD = FX.has('bld') ? `
+float fac_box(float x, float a, float b, float w) { return smoothstep(a - w, a + w, x) * (1.0 - smoothstep(b - w, b + w, x)); }
+const vec3 ROOF_COL[4] = vec3[4](vec3(0.588, 0.588, 0.573), vec3(0.714, 0.714, 0.698), vec3(0.463, 0.573, 0.471), vec3(0.588, 0.408, 0.361));
+` : '';
+  // 窗格、陽台、鐵窗、店面只在近處算（detail > 0），遠處直接用平均色，手機上大部分牆面都省掉這段。
+  // 分支裡不能用 fwidth（導數在分支裡沒有定義），要用的導數都先在外面算好
+  const BLD_FS = `
+    int lk = int(vLook + 0.5), btype = lk & 7;
+    vec3 lf = color.rgb / max(vAlbedo, vec3(0.04));
+    if (btype > 0 && vStorey > 1.0) {
+      float fl = h / vStorey, floors = vTop / vStorey;
+      float dfl = max(fwidth(fl), 1e-4), dWallU = max(fwidth(vWallU), 1e-4);
+      float detail = 1.0 - smoothstep(0.10, 0.30, dfl);
+      // 玻璃不是全黑：白天窗戶映著對面的樓和天空，照片上大多是中深的灰藍
+      vec3 glass = btype == 4 ? vec3(0.24, 0.30, 0.35) : btype == 3 ? vec3(0.21, 0.25, 0.29) : vec3(0.19, 0.22, 0.25);
+      float ww = 0.0, s0 = 0.0, s1 = 0.0, bayW = 4.0;
+      if (btype == 1) { ww = 0.50 + 0.15 * vSeed; s0 = 0.32; s1 = 0.78; bayW = 3.0 + 1.2 * vSeed; }
+      else if (btype == 2) { ww = 0.55 + 0.15 * vSeed; s0 = 0.28; s1 = 0.80; bayW = 3.2 + 1.4 * vSeed; }
+      else if (btype == 3) { ww = 0.55 + 0.20 * vSeed; s0 = 0.20; s1 = 0.84; bayW = 3.6 + 1.6 * vSeed; }   // 新大樓：石材或磁磚牆面為主，落地窗只佔一部分
+      else if (btype == 4) { bool cw = vSeed > 0.55; ww = cw ? 0.94 : 0.995; s0 = cw ? 0.04 : 0.32; s1 = cw ? 0.97 : 0.86; bayW = 1.5 + 1.0 * vSeed; }
+      else if (btype == 5) { ww = 0.66; s0 = 0.30; s1 = 0.82; bayW = 3.4 + 1.0 * vSeed; }
+      else if (btype == 6) { ww = 0.30; s0 = 0.36; s1 = 0.76; bayW = 4.5 + 2.0 * vSeed; }
+      float nb = max(1.0, floor(vWallLen / bayW + 0.5));
+      float bayLen = max(vWallLen / nb, 0.1);
+      float bu = vWallU / bayLen, dbu = dWallU / bayLen;
+      detail = min(detail, 1.0 - smoothstep(0.10, 0.30, dbu));   // 斜看的牆，窗會比樓層先擠在一起
+      float cov = btype == 7 ? 0.0 : ww * (s1 - s0) * clamp(floors - 1.0, 0.0, floors) / max(floors, 1.0);
+      vec3 glassFar = glass * lf;
+${FX.has('mat') ? `
+      // 窗的玻璃反射天空（fx=mat，跟地標的玻璃同一個假環境）。遠處只取天空漸層（不取城市剪影，才不會閃），近處全取
+      vec3 V = normalize(vView), Nn = normalize(vNrm), R = reflect(V, Nn);
+      float F = clamp(0.06 + 0.94 * pow(1.0 - abs(dot(V, Nn)), 5.0), 0.0, 0.9);
+      glassFar = mix(glassFar, shine_env(R, 1.0), F);` : ''}
+      vec3 farC = mix(vAlbedo * lf, glassFar, cov);
+      vec3 nearC = farC;
+      float win = 0.0, shopGlow = 0.0;
+      if (detail > 0.001) {
+        float fu = fract(bu), fv = fract(fl);
+        win = fac_box(fu, 0.5 - ww * 0.5, 0.5 + ww * 0.5, dbu) * fac_box(fv, s0, s1, dfl);
+        win *= step(fl, floors - 0.02) * step(1.2, vWallLen) * step(0.5, fl);
+        vec3 alb = vAlbedo, winC = glass;
+        if ((lk & 32) != 0) {
+          // 鐵窗：窗外淺灰的框，直條約 12 cm 一支，近看才看得到
+          float bars = vWallU / 0.12, dbar = dWallU / 0.12;
+          float bar = smoothstep(0.62 - dbar, 0.62 + dbar, abs(fract(bars) - 0.5) * 2.0);
+          winC = mix(glass, vec3(0.74, 0.75, 0.74), 0.6 * bar * (1.0 - smoothstep(0.25, 0.6, dbar)) + 0.12);
+        }
+        if ((lk & 8) != 0) {
+          // 陽台：樓板邊一條淺色的帶子，底下一條影子，欄杆那段（窗台以下）顏色深一點
+          float slab = fac_box(fv, 0.0, 0.07, dfl);
+          float shade = fac_box(fv, 0.84, 1.0, dfl);
+          alb = alb * (1.0 + 0.12 * slab) * (1.0 - 0.22 * shade);
+          winC *= 0.8;
+        }
+        if (btype == 7) {
+          // 鐵皮屋：直向的浪板
+          float corr = 0.5 + 0.5 * sin(vWallU * 41.9);
+          alb *= mix(1.0, 0.86 + 0.14 * corr, 1.0 - smoothstep(0.2, 0.6, dWallU * 6.67));
+          win = 0.0;
+        }
+        if ((lk & 16) != 0 && fl < 1.0) {
+          // 一樓店面、騎樓：暗的一條，上緣是招牌
+          float signB = fac_box(fv, 0.78, 1.0, dfl);
+          alb = mix(vec3(0.22, 0.22, 0.23), mix(vec3(0.70, 0.66, 0.58), vec3(0.62, 0.30, 0.24), step(0.6, fract(vSeed * 7.0 + floor(bu) * 0.37))), signB);
+          win = 0.0;
+          shopGlow = fac_box(fv, 0.05, 0.74, dfl) + 0.6 * signB;
+        }
+        vec3 winLit = winC * lf;
+${FX.has('mat') ? `
+        winLit = mix(winLit, shine_env(R, 0.0), F);` : ''}
+        nearC = mix(alb * lf, winLit, win);
+      }
+      color.rgb = mix(farC, nearC, detail);
+      // 入夜以後亮燈的窗：每扇窗依位置抽一次要不要亮（住宅約四成、辦公四成多），住宅暖黃、辦公偏白；
+      // 遠看窗格淡出時用「玻璃面積 × 亮燈比例」的平均亮度，才不會一閃一閃。一樓店面整排亮
+      if (facade.night > 0.0) {
+        // 整數雜湊：vSeed 是內插出來的，每個像素差一點點，用 sin 的雜湊會被放大成雜點，所以先取整數
+        uint hx = uint(max(floor(bu), 0.0)) * 73856093u ^ uint(max(floor(fl), 0.0)) * 19349663u ^ uint(floor(vSeed * 255.0 + 0.5)) * 83492791u;
+        hx = (hx ^ (hx >> 13u)) * 1274126177u;
+        float wid = float((hx >> 8u) & 1023u) / 1023.0;
+        float share = btype == 4 ? 0.45 : 0.4;
+        vec3 glow = btype == 4 ? vec3(0.42, 0.46, 0.52) : vec3(0.78, 0.58, 0.34);
+        float nearG = win * step(1.0 - share, wid), farG = cov * share;
+        color.rgb += facade.night * (glow * mix(farG, nearG, detail) + vec3(0.80, 0.66, 0.46) * shopGlow * detail);
+      }
+    }`;
+  const facadeModule = {
+    name: 'facade',
+    vs: FACADE_BLOCK + FACADE_VARS.replace(/(float|vec3) /g, 'out $1 ') + '\n',
+    fs: FACADE_BLOCK + FACADE_VARS.replace(/(float|vec3) /g, 'in $1 ') + '\n' + BLD_FS_HEAD,
+    inject: {
+      'vs:#main-end': [
+        '#ifdef IS_SIDE_VERTEX',
+        '  vFloorH = positions.y * elevations; vTop = elevations; vSide = 1.0;',
+        '#else',
+        '  vFloorH = 0.0; vTop = 0.0; vSide = 0.0;',
+        '#endif',
+        '  vStorey = lineColors.r * 25.5;',
+        '  vRoof = step(0.5, lineColors.b);',
+        BLD_VS
+      ].join('\n'),
+      'fs:DECKGL_FILTER_COLOR': `
+if (picking.isActive < 0.5) {
+  if (vSide < 0.5) {
+    float lum = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+${FX.has('bld') ? `
+    // fx=bld：屋頂依每棟的設定上色（水泥灰、淺灰、綠色防水漆、紅褐色防水漆）
+    if (vRoof > 0.5) color.rgb = ROOF_COL[(int(vLook + 0.5) >> 6) & 3] * (color.rgb / max(vAlbedo, vec3(0.04)));
+    else color.rgb *= 0.93;` : `
+    color.rgb = vRoof > 0.5 ? mix(color.rgb, vec3(lum), 0.85) * 0.95 : color.rgb * 0.93;`}
+  } else {
+    float h = vFloorH;
+${FX.has('ao') ? `
+    // fx=ao：牆腳往下變暗（地面附近大半個天空被街道對面的建物和地面擋掉），越低越暗、約 5 m 以上就沒有了；
+    // 牆頂 0.5 m 亮一點，像女兒牆頂接到天光，屋頂的輪廓才看得出來
+    color.rgb *= 1.0 - 0.34 * exp(-h / 2.2);
+    color.rgb *= 1.0 + 0.10 * (1.0 - smoothstep(0.0, 0.5, vTop - h));` : `
+    color.rgb *= mix(0.80, 1.0, smoothstep(0.0, 3.5, h));
+    color.rgb *= 1.0 - 0.12 * (1.0 - smoothstep(0.1, 0.6, vTop - h));`}
+${FX.has('bld') ? BLD_FS : ''}
+    if (facade.enabled > 0.5 && vStorey > 1.0) {
+      float t = h / vStorey;
+      float dt = max(fwidth(t), 1e-4);
+      float fade = 1.0 - smoothstep(0.08, 0.25, dt);
+      float floors = vTop / vStorey;
+      float f = abs(fract(t + 0.5) - 0.5);
+      float line = 1.0 - smoothstep(0.6 * dt, 1.6 * dt, f);
+      line *= step(0.5, t) * step(t, floors - 0.5);
+      color.rgb *= 1.0 - ${FX.has('bld') ? '0.08' : '0.14'} * line * fade;
+    }
+  }
+}`
+    },
+    getUniforms: opts => {
+      const u = {};
+      if (opts && 'enabled' in opts) u.enabled = opts.enabled ? 1 : 0;
+      if (opts && 'night' in opts) u.night = opts.night;
+      return u;
+    },
+    uniformTypes: { enabled: 'f32', night: 'f32' }
+  };
+  class Facade extends LayerExtension {
+    // fx=bld 加 fx=mat 時窗戶要用 shine 的假環境（shine 模組在後面定義，這裡等到建圖層時才取）
+    getShaders() { return { modules: FX.has('bld') && FX.has('mat') ? [shineModule, facadeModule] : [facadeModule] }; }
+    draw() {
+      this.setShaderModuleProps({ facade: { enabled: this.props.facadeEnabled, night: FX.has('bld') ? windowGlow : 0 } });
+      if (FX.has('bld') && FX.has('mat')) this.setShaderModuleProps({ shine: shineProps });
+    }
+  }
+  Facade.defaultProps = { facadeEnabled: true };
+  Facade.componentName = 'Facade';
+  const FACADE = new Facade();
+
+  // ---------- 地標的環境光遮蔽（fx=ao） ----------
+  // 頂點遮蔽在 landmarks.py 烘好（meshkit.bake_ao）：顏色那幾份已經乘進頂點顏色，貼圖那幾份另外存 ao，
+  // 這裡當成頂點顏色傳進來，在著色器裡乘到貼圖上。牆腳的暗邊照一般建物的算法依高度畫，只畫在牆面（法向量越水平越明顯），
+  // 廣場、球場這種貼地的平面不會被壓暗。
+  const lmAoModule = {
+    name: 'lmAo',
+    vs: 'out float vLmZ;\n',
+    fs: 'in float vLmZ;\n',
+    inject: {
+      'vs:#main-end': 'vLmZ = positions.z;',
+      // vColor 是圖層自己宣告的，DECKGL_FILTER_COLOR 那個函式在它前面、看不到，所以在 main 最後乘（乘在打光之後）
+      'fs:#main-end': 'if (picking.isActive < 0.5) {\n  if (simpleMesh.hasTexture) fragColor.rgb *= vColor.rgb;\n' +
+        '  fragColor.rgb *= 1.0 - 0.34 * exp(-max(vLmZ, 0.0) / 2.2) * (1.0 - abs(normal.z));\n}'
+    }
+  };
+  class LandmarkAo extends LayerExtension {
+    getShaders() { return { modules: [lmAoModule] }; }
+  }
+  LandmarkAo.componentName = 'LandmarkAo';
+  const LM_AO = new LandmarkAo();
+
+  // ---------- 地標的照片取樣材質（fx=tex） ----------
+  // landmarks.py 依頂點顏色把每個頂點標上材質編號（lmmat；網格檔的 tm），載入時同一種材質的三角形拆成一份，
+  // 各自一個圖層、綁那張 512 px 的無縫貼圖。網格沒有 UV：用網格座標（公尺，東、北、上）做三向投影，
+  // 牆面用水平和高度、屋頂用水平面兩軸（坡面朝東西的轉 90°，瓦的行才會沿著屋簷），依面的朝向混合。
+  // 貼圖的平均顏色已經校到網格原本的顏色，這裡再乘「頂點顏色 ÷ 材質的基準色」：頂點顏色裡烘的 AO 和同一張貼圖的深淺差都留著。
+  // 顏色換掉之後重新打光（跟 SimpleMeshLayer 自己的打光同一個函式），所以要在 main 的最後做，其他擴充（霧）排在後面
+  const TEX_BLOCK = 'layout(std140) uniform texmatUniforms {\n  vec3 base;\n  float size;\n} texmat;\n';
+  const texmatModule = {
+    name: 'texmat',
+    vs: TEX_BLOCK + 'out vec3 vTexPos;\n',
+    fs: TEX_BLOCK + 'in vec3 vTexPos;\n',
+    inject: {
+      'vs:#main-end': 'vTexPos = positions;',
+      'fs:#main-end': `if (picking.isActive < 0.5) {
+  vec3 tn = normalize(cross(dFdx(vTexPos), dFdy(vTexPos)));
+  vec3 an = abs(tn), tw = an * an * an * an;
+  tw /= max(tw.x + tw.y + tw.z, 1e-6);
+  vec3 tp = vTexPos / max(texmat.size, 0.01);
+  vec2 top = an.x > an.y ? tp.yx : tp.xy;
+  vec3 tc = texture(sampler, vec2(tp.y, -tp.z)).rgb * tw.x + texture(sampler, vec2(tp.x, -tp.z)).rgb * tw.y + texture(sampler, top).rgb * tw.z;
+  tc *= clamp(vColor.rgb / max(texmat.base, vec3(0.02)), 0.0, 1.6);
+  ${FX.has('ao') ? 'tc *= 1.0 - 0.34 * exp(-max(vTexPos.z, 0.0) / 2.2) * (1.0 - an.z);   // 牆腳變暗，跟 LM_AO 一樣' : ''}
+  fragColor = vec4(lighting_getLightColor(tc, cameraPosition, position_commonspace.xyz, normal), layer.opacity);
+}`
+    },
+    getUniforms: o => o || {},
+    uniformTypes: { base: 'vec3<f32>', size: 'f32' }
+  };
+  class TexMat extends LayerExtension {
+    getShaders() { return { modules: [texmatModule] }; }
+    draw() { this.setShaderModuleProps({ texmat: { base: this.props.texBase, size: this.props.texSize } }); }
+  }
+  TexMat.defaultProps = { texBase: [1, 1, 1], texSize: 1 };
+  TexMat.componentName = 'TexMat';
+  const TEXMAT = new TexMat();
+  // 可重複的貼圖：重複、縮小時用 mipmap
+  const TEX_SAMPLER = { addressModeU: 'repeat', addressModeV: 'repeat', minFilter: 'linear', magFilter: 'linear', mipmapFilter: 'linear' };
+
+  // ---------- 玻璃和金屬（fx=mat） ----------
+  // 沒有真的環境貼圖，用函式畫一個假的：反射方向朝上是天空（地平線色到天頂藍的漸層，加上太陽），
+  // 地平線附近是一圈遠方城市的剪影（依方位角一段一段不同高度、帶霧的灰藍色），再往下是地面。
+  // 玻璃：菲涅耳（斜看反射多、正看反射少，F0 = 0.05），貼圖 alpha 標成玻璃的地方才反射，太陽的反光很亮很小。
+  // 金屬：反射強（F0 = 0.4）但粗糙，只取天空的漸層、不取剪影，顏色乘上金屬本身的顏色；材質的高光也調強。
+  const SHINE_BLOCK = 'layout(std140) uniform shineUniforms {\n  vec3 sunDir;\n  vec3 zenith;\n  vec3 horizon;\n  vec3 haze;\n  vec4 params;\n} shine;\n';
+  const shineModule = {
+    name: 'shine',
+    vs: SHINE_BLOCK,
+    fs: SHINE_BLOCK + `
+float shineMask = 0.0;
+float shine_hash(float n) { return fract(sin(n * 91.3458) * 47453.5453); }
+vec3 shine_env(vec3 R, float rough) {
+  float up = R.z;
+  vec3 sky = mix(shine.horizon, shine.zenith, smoothstep(0.0, 0.55, up));
+  if (rough > 0.5) return mix(mix(shine.haze * 0.7, sky, smoothstep(-0.25, 0.15, up)), sky, 0.35);
+  float az = atan(R.y, R.x) / 6.2831853 + 0.5;
+  float seg = floor(az * 160.0);
+  float h = 0.012 + 0.07 * pow(shine_hash(seg), 2.0) * (0.6 + 0.4 * shine_hash(floor(az * 23.0)));
+  vec3 city = mix(shine.haze * 0.62, shine.haze * 0.85, smoothstep(-0.15, h, up));
+  vec3 ground = shine.haze * 0.45;
+  vec3 c = up > h ? sky : (up > -0.03 ? city : ground);
+  float sunK = pow(max(dot(R, shine.sunDir), 0.0), 900.0) * 3.0 * shine.params.y;
+  return c + vec3(1.0, 0.95, 0.85) * sunK;
+}
+`,
+    getUniforms: o => o || {},
+    uniformTypes: { sunDir: 'vec3<f32>', zenith: 'vec3<f32>', horizon: 'vec3<f32>', haze: 'vec3<f32>', params: 'vec4<f32>' }
+  };
+  let shineProps = { sunDir: [0, 0, 1], zenith: [0.5, 0.68, 0.86], horizon: [0.88, 0.91, 0.93], haze: [0.8, 0.85, 0.89], params: [1, 1, 0, 0] };
+  // kind：'glass' 貼圖面（玻璃遮罩在 alpha）、'metal' 金屬面
+  class Shine extends LayerExtension {
+    getShaders(ext) {
+      const glass = ext.opts.kind === 'glass';
+      return { modules: [shineModule], inject: {
+        'fs:DECKGL_FILTER_COLOR': glass
+          ? 'shineMask = clamp((1.0 - color.a) / ' + (1 - GLASS_ALPHA).toFixed(3) + ', 0.0, 1.0);\ncolor.a = 1.0;'
+          : 'shineMask = 1.0;',
+        'fs:#main-end': `if (picking.isActive < 0.5 && shineMask > 0.0) {
+  vec3 V = normalize(position_commonspace.xyz - cameraPosition);
+  vec3 Nn = normalize(normal);
+  if (dot(Nn, V) > 0.0) Nn = -Nn;
+  vec3 R = reflect(V, Nn);
+  float cosT = max(dot(-V, Nn), 0.0);
+  float F0 = ${glass ? '0.05' : '0.4'};
+  float F = F0 + (1.0 - F0) * pow(1.0 - cosT, 5.0);
+  vec3 env = shine_env(R, ${glass ? '0.0' : '1.0'});
+  ${glass ? '' : 'env *= mix(vec3(1.0), vColor.rgb * 1.25, 0.6);'}
+  fragColor.rgb = mix(fragColor.rgb, env, clamp(F * ${glass ? '0.9' : '0.55'}, 0.0, 1.0) * shineMask);
+}` } };
+    }
+    draw() { this.setShaderModuleProps({ shine: shineProps }); }
+  }
+  Shine.componentName = 'Shine';
+  const SHINE_GLASS = new Shine({ kind: 'glass' }), SHINE_METAL = new Shine({ kind: 'metal' });
+  const METAL_MAT = { ambient: 0.5, diffuse: 0.55, shininess: 40, specularColor: [150, 150, 150] };
+
+  // ---------- 大氣透視和亮部壓縮（fx=light） ----------
+  // MapLibre 在地面上加霧：依「畫面中心到最遠處」之間的透視深度混進霧色、再往地平線色過渡（線性色彩空間）。
+  // deck.gl 畫的建物、地標、樹不吃這個霧，遠處的建物就比底下的地面清楚，像貼上去的。這裡照 MapLibre 地形
+  // 著色器的同一套算法（同樣的近遠距離、起霧深度、顏色），在 deck.gl 的圖層上算一樣的霧。
+  // MapLibre 原本傾角 60° 以下完全不起霧、70° 才全開，這裡改成 40° 開始、55° 全開（fogOpacity），兩邊共用。
+  // 亮部壓縮：deck.gl 的光照沒有色調映射，太陽直射的淺色牆一超過 1 就整片死白；0.8 以上改成慢慢逼近 1。
+  const ATMOS_BLOCK = 'layout(std140) uniform atmosUniforms {\n  vec3 fwd;\n  vec2 nearFar;\n  vec3 fogLin;\n  vec3 horizonLin;\n  vec4 params;\n} atmos;\n';
+  const atmosModule = {
+    name: 'atmos',
+    vs: ATMOS_BLOCK + 'out float vAtmosD;\n',
+    fs: ATMOS_BLOCK + 'in float vAtmosD;\n' + `
+// params：x 起霧的深度（fog-ground-blend）、y 開始混地平線色的深度（horizon-fog-blend）、z 霧的濃度、w 亮部壓縮
+float atmos_depth01() {
+  float n = atmos.nearFar.x, f = atmos.nearFar.y, d = max(vAtmosD, 1e-6);
+  return ((f + n) / (f - n) - 2.0 * f * n / ((f - n) * d)) * 0.5 + 0.5;
+}
+float atmos_fog() {
+  float k = max(atmos_depth01() - atmos.params.x, 0.0) / (1.0 - atmos.params.x);
+  return clamp(k * k * atmos.params.z, 0.0, 1.0);
+}
+vec3 atmos_apply(vec3 c) {
+  if (atmos.params.w > 0.5) c = mix(c, 0.8 + 0.2 * (1.0 - exp(-(c - 0.8) / 0.2)), step(0.8, c));
+  float z = atmos_depth01();
+  if (z <= atmos.params.x) return c;
+  float b = smoothstep(0.0, 1.0, max((z - atmos.params.y) / (1.0 - atmos.params.y), 0.0));
+  vec3 fogC = mix(atmos.fogLin, atmos.horizonLin, b);
+  return pow(mix(pow(max(c, 0.0), vec3(2.2)), fogC, atmos_fog()), vec3(1.0 / 2.2));
+}
+`,
+    getUniforms: o => o || {},
+    uniformTypes: { fwd: 'vec3<f32>', nearFar: 'vec2<f32>', fogLin: 'vec3<f32>', horizonLin: 'vec3<f32>', params: 'vec4<f32>' }
+  };
+  // 每一格算一次：相機朝向、MapLibre 的霧用的近遠距離（它的像素 ÷ 2^zoom 就是 deck.gl 的共用座標單位）。
+  // nearFar 照 MapLibre 4.7 Transform 的 fogMatrix：近 = 相機到畫面中心的距離（含中心的地形高度），遠 = farZ
+  let atmosColors = { fog: [230, 235, 236], horizon: [238, 242, 242] };
+  const ATMOS_GROUND = 0.3, ATMOS_HORIZON = 0.6;
+  // 霧是照「近到遠」之間的比例畫的，不是照公尺：拉近到 16、17 級時遠平面只在一兩公里外，幾百公尺外的東西就被霧蓋掉一大半，
+  // 比臺北平常的能見度（十幾公里）濃很多。所以 15 級以上依縮放把霧減淡，到 17.5 級剩三成五（MapLibre 只傳傾角進來，縮放另外讀）
+  const fogOpacity = (pitch, zoom = map.getZoom()) =>
+    (pitch < 40 ? 0 : pitch < 55 ? (pitch - 40) / 15 : 1) * 0.85 * (1 - 0.65 * smooth(15, 17.5, zoom));
+  const toLin = c => c.map(v => Math.pow(v / 255, 2.2));
+  let atmosCache = { key: '', props: null };
+  function atmosProps() {
+    const t = map.transform, key = [t.zoom, t.pitch, t.bearing, t.center.lng, t.center.lat, t.width, t.height, t.farZ, atmosColors.fog].join();
+    if (atmosCache.key === key) return atmosCache.props;
+    const z = Math.pow(2, t.zoom), p = t.pitch * Math.PI / 180, b = t.bearing * Math.PI / 180;
+    const near = (t.cameraToCenterDistance + (t._elevation || 0) * (t._pixelPerMeter || 0) / Math.cos(p)) / z;
+    const far = Math.max(near * 1.01, (t.farZ || 1e7) / z);
+    const on = FX.has('light');
+    atmosCache = { key, props: {
+      fwd: [Math.sin(b) * Math.sin(p), Math.cos(b) * Math.sin(p), -Math.cos(p)], nearFar: [near, far],
+      fogLin: toLin(atmosColors.fog), horizonLin: toLin(atmosColors.horizon),
+      params: [ATMOS_GROUND, ATMOS_HORIZON, on ? fogOpacity(t.pitch) : 0, on ? 1 : 0] } };
+    return atmosCache.props;
+  }
+  // mode：'color' 一般圖層（改最後的顏色）；'shadow' 地面影子（越遠影子越淡，跟地面的霧一致）；'alpha' 半透明的貼地暗邊
+  class Atmos extends LayerExtension {
+    getShaders(ext) {
+      const mode = ext.opts.mode;
+      const code = mode === 'shadow' ? 'fragColor.a = 1.0 - (1.0 - fragColor.a) * (1.0 - atmos_fog());'
+        : mode === 'alpha' ? 'fragColor.a *= 1.0 - atmos_fog();'
+        : 'fragColor.rgb = atmos_apply(fragColor.rgb);';
+      // 地面影子的頂點在 planarShadow 裡才投到地上（shadowCommonPos），霧的深度要用投影後的位置
+      const pos = mode === 'shadow' ? 'shadowCommonPos' : 'geometry.position.xyz';
+      return { modules: [atmosModule], inject: {
+        'vs:#main-end': 'vAtmosD = dot(' + pos + ' - project.cameraPosition, atmos.fwd);',
+        'fs:#main-end': 'if (picking.isActive < 0.5) {\n' + code + '\n}' } };
+    }
+    draw() { this.setShaderModuleProps({ atmos: atmosProps() }); }
+  }
+  Atmos.componentName = 'Atmos';
+  const FOG = new Atmos({ mode: 'color' }), FOG_SHADOW = new Atmos({ mode: 'shadow' }), FOG_ALPHA = new Atmos({ mode: 'alpha' });
+  // 圖層的 extensions：fx=light 沒開就不加，著色器跟原本完全一樣
+  const withAtmos = (list, ext = FOG) => (FX.has('light') ? list.concat([ext]) : list);
+
+  // ---------- 建物腳邊的接觸陰影（環境遮蔽的簡化版） ----------
+  // 牆腳附近的地面被建物擋掉一部分天空的光，所以比較暗。沿每棟建物的外框畫一條路徑，一半在建物底下、
+  // 一半在外面，從牆腳往外由深變淺。高樓擋得多，暗邊寬一點：外面那半的寬度 = 高度 × 0.12，限制在 1.5–5 m。
+  const contactModule = {
+    name: 'contactShadow',
+    inject: { 'fs:DECKGL_FILTER_COLOR': 'float aoT = clamp(1.0 - abs(geometry.uv.x), 0.0, 1.0);\ncolor.a *= aoT * aoT;' }
+  };
+  class ContactShadow extends LayerExtension {
+    getShaders() { return { modules: [contactModule] }; }
+  }
+  ContactShadow.componentName = 'ContactShadow';
+  const CONTACT = new ContactShadow();
+
+  // ---------- 地面影子 ----------
+  // 建物、樹、高架橋的每個頂點順著陽光方向投影到它所在的地面高度（有地形時就是那裡的海拔）。
+  // 重疊的影子只壓暗一次，分兩步：
+  //   1. 各個影子圖層跟地形、建物做深度測試，看得到的像素只把畫面的 alpha 改成「1 − 影子濃度」，顏色不動。
+  //      重疊的影子寫進同一個值，所以不會疊黑。
+  //   2. 最後一個圖層（SHADOW_RESOLVE）蓋一張大面：alpha 小於 1 的像素混上影子顏色，再把 alpha 改回 1。
+  //   中間才畫的建物、樹會把 alpha 蓋回 1，影子就不會畫到它們身上。
+  // 地面高度借顏色欄位傳進 shader：(高度 + 100 m) × 10 拆成兩個位元組放在 r、g。
+  const SHADOW_LIFT = 0.4;                            // 影子離地 0.4 m，才不會跟地面搶深度
+  const PS_BLOCK = 'layout(std140) uniform planarShadowUniforms {\n  vec2 dir;\n  vec4 color;\n} planarShadow;\n';
+  const planarShadowModule = {
+    name: 'planarShadow',
+    vs: PS_BLOCK + 'float shadowGround;\nvec3 shadowCommonPos;\n',
+    fs: PS_BLOCK,
+    inject: {
+      'vs:DECKGL_FILTER_GL_POSITION': [
+        'vec4 p = geometry.position;',
+        'float gz = project_size(shadowGround);',
+        'p.xy += planarShadow.dir * (p.z - gz);',
+        'p.z = gz + project_size(' + SHADOW_LIFT.toFixed(2) + ');',
+        'shadowCommonPos = p.xyz;',
+        'position = project_common_position_to_clipspace(p);'
+      ].join('\n'),
+      'fs:DECKGL_FILTER_COLOR': 'if (color.a < 0.5) discard;\ncolor = vec4(0.0, 0.0, 0.0, 1.0 - planarShadow.color.a);'
+    },
+    getUniforms: o => (o && o.dir ? { dir: o.dir, color: o.color } : {}),
+    uniformTypes: { dir: 'vec2<f32>', color: 'vec4<f32>' }
+  };
+  class PlanarShadow extends LayerExtension {
+    // opts.attr：地面高度放在哪個顏色欄位（多邊形圖層是 fillColors，模型圖層是 instanceColors）
+    getShaders(ext) {
+      const a = ext.opts.attr;
+      return {
+        modules: [planarShadowModule],
+        inject: { 'vs:#main-start': 'shadowGround = floor(' + a + '.r * 255.0 + 0.5) * 25.6 + floor(' + a + '.g * 255.0 + 0.5) * 0.1 - 100.0;' }
+      };
+    }
+    draw() { this.setShaderModuleProps({ planarShadow: { dir: this.props.shadowDir, color: this.props.shadowColor } }); }
+  }
+  PlanarShadow.defaultProps = { shadowDir: [0, 0], shadowColor: [0, 0, 0, 0] };
+  PlanarShadow.componentName = 'PlanarShadow';
+  const SHADOW_POLY = new PlanarShadow({ attr: 'fillColors' }), SHADOW_MESH = new PlanarShadow({ attr: 'instanceColors' });
+  const groundColor = g => { const v = Math.max(0, Math.min(65535, Math.round((g + 100) * 10))); return [v >> 8, v & 255, 0, 255]; };
+  // 第一步：顏色不動（src × 0 + dst × 1），alpha 直接寫成 1 − 影子濃度
+  const SHADOW_PARAMS = {
+    depthWriteEnabled: false, depthCompare: 'less-equal', blend: true,
+    blendColorOperation: 'add', blendColorSrcFactor: 'zero', blendColorDstFactor: 'one',
+    blendAlphaOperation: 'add', blendAlphaSrcFactor: 'one', blendAlphaDstFactor: 'zero'
+  };
+  // 第二步：顏色 = 影子色 × (1 − dst.alpha) + 原色 × dst.alpha，alpha 改回 1
+  const RESOLVE_PARAMS = {
+    depthWriteEnabled: false, depthCompare: 'always', blend: true,
+    blendColorOperation: 'add', blendColorSrcFactor: 'one-minus-dst-alpha', blendColorDstFactor: 'dst-alpha',
+    blendAlphaOperation: 'add', blendAlphaSrcFactor: 'one', blendAlphaDstFactor: 'zero'
+  };
+  // 地圖能看的範圍（臺北市四周再留一點）；影子最後那張大面也蓋這個範圍
+  const VIEW_BOUNDS = [121.30, 24.85, 121.82, 25.35];
+  const [VW, VS, VE, VN] = VIEW_BOUNDS;
+  const RESOLVE_DATA = [{ poly: [[[VW, VS], [VE, VS], [VE, VN], [VW, VN], [VW, VS]]] }];
+  // 影子的顏色：背陽的地面主要被天空照亮，所以偏藍（fx=light 再藍一點）
+  const SHADOW_TINT = FX.has('light') ? [30, 44, 82, 255] : [41, 48, 69, 255];
+
+  // ---------- 樹 ----------
+  // 樹冠用「葉片貼圖」：幾片交叉的面，貼上外緣參差、有透明縫的葉叢圖案（遊戲和 3D 地圖常用的做法）。
+  // 法向量照樹冠的球形算，所以向陽面亮、背光面暗；樹冠下半部再壓暗一點。影子用同一組面，會有葉縫。
+  // 葉子圖案是灰階，顏色由每棵樹自己的顏色（樹種、季節）乘上去。
+  function leafTexture() {
+    const n = 256, c = document.createElement('canvas');
+    c.width = c.height = n;
+    const g = c.getContext('2d');
+    let seed = 7;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    // 底：一團團比較暗的葉叢，讓樹冠中間大致不透光
+    for (let i = 0; i < 260; i++) {
+      const a = rnd() * 2 * Math.PI, r = Math.sqrt(rnd()) * 0.36, R = (0.05 + rnd() * 0.06) * n;
+      const v = Math.round(150 + rnd() * 40);
+      g.fillStyle = 'rgb(' + v + ',' + (v + 4) + ',' + (v - 8) + ')';
+      g.beginPath(); g.arc((0.5 + r * Math.cos(a)) * n, (0.5 + r * Math.sin(a)) * n, R, 0, 2 * Math.PI); g.fill();
+    }
+    // 上面撒葉子：越往外越稀，外緣參差
+    for (let i = 0; i < 2600; i++) {
+      const a = rnd() * 2 * Math.PI, r = Math.sqrt(rnd()) * 0.5;
+      if (rnd() < Math.pow(r / 0.5, 3) * 0.85) continue;
+      const L = (0.012 + rnd() * 0.016) * n, W = L * (0.45 + rnd() * 0.2), v = Math.round(185 + rnd() * 70);
+      const warm = rnd() < 0.3 ? 10 : 0;
+      g.fillStyle = 'rgb(' + (v + warm) + ',' + v + ',' + (v - 12 - warm) + ')';
+      g.beginPath(); g.ellipse((0.5 + r * Math.cos(a)) * n, (0.5 + r * Math.sin(a)) * n, L, W, rnd() * Math.PI, 0, 2 * Math.PI); g.fill();
+    }
+    return c;
+  }
+  const LEAF_TEXTURE = leafTexture();
+  // 地標用的重複貼圖（材質名稱 → canvas），例如 101 的帷幕牆；網格的 uv 超過 0–1 時重複貼
+  const REPEAT = { addressModeU: 'repeat', addressModeV: 'repeat' };
+  // 照片投影貼圖（lmtex 的貼圖集）：不重複、邊緣夾住；縮小時用 mipmap，遠看不會閃
+  const PHOTO_SAMPLER = { addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge',
+                          minFilter: 'linear', magFilter: 'linear', mipmapFilter: 'linear' };
+  const photoLoads = {};
+  // 材質 photo:<名稱> 的貼圖是 data/landmarks/<名稱>.jpg，網格載入時才載（同一張只載一次）
+  function loadPhotoTexture(material) {
+    if (!photoLoads[material]) {
+      const img = new Image();
+      img.src = 'data/landmarks/' + material.slice(6) + '.jpg';
+      photoLoads[material] = img.decode().then(() => { LANDMARK_TEXTURES[material] = img; }).catch(() => {});   // 載不到就畫沒貼圖的
+    }
+    return photoLoads[material];
+  }
+  // 101 的帷幕牆：8 格寬 × 4 層高的玻璃、窗框和每層的窗台帶。幾格隨機比較亮或比較暗（窗簾），重複起來比較不呆板
+  function curtain101Texture() {
+    const bays = 8, floors = 4, bw = 32, fh = 64, c = document.createElement('canvas');
+    c.width = bays * bw;
+    c.height = floors * fh;
+    const g = c.getContext('2d');
+    let seed = 11;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const rgb = a => 'rgb(' + a.map(v => Math.max(0, Math.min(255, Math.round(v)))).join(',') + ')';
+    for (let f = 0; f < floors; f++) {
+      for (let b = 0; b < bays; b++) {
+        const x = b * bw, y = f * fh, k = rnd();
+        const base = k < 0.12 ? [140, 192, 208] : k < 0.3 ? [62, 116, 136] : [88, 152, 174];
+        const grad = g.createLinearGradient(0, y, 0, y + fh);
+        grad.addColorStop(0, rgb(base.map(v => v + 16)));
+        grad.addColorStop(1, rgb(base.map(v => v - 12)));
+        g.fillStyle = grad;
+        g.fillRect(x, y, bw, fh);
+      }
+      g.fillStyle = 'rgb(48,88,106)';                // 窗台帶
+      g.fillRect(0, f * fh + fh - 13, c.width, 13);
+    }
+    g.fillStyle = 'rgb(176,204,206)';               // 直櫺、橫櫺
+    for (let b = 0; b < bays; b++) g.fillRect(b * bw, 0, 2, c.height);
+    for (let f = 0; f < floors; f++) g.fillRect(0, f * fh + fh - 14, c.width, 2);
+    return c;
+  }
+  // fx=mat：貼圖裡玻璃的部分用 alpha 標記（GLASS_ALPHA），著色器讀出來當「這裡是玻璃」的遮罩，再把 alpha 改回 1。
+  // 不用另外一張貼圖：SimpleMeshLayer 只能綁一張。依顏色判斷：跟這張貼圖的玻璃色差不到 36 的像素算玻璃（窗框、窗台帶、
+  // 磚牆的顏色都差得遠）
+  const GLASS_ALPHA = 0.6;
+  function markGlass(c, glassColors) {
+    if (!FX.has('mat')) return c;
+    const g = c.getContext('2d'), img = g.getImageData(0, 0, c.width, c.height), d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      for (const q of glassColors) {
+        if (Math.abs(d[i] - q[0]) + Math.abs(d[i + 1] - q[1]) + Math.abs(d[i + 2] - q[2]) < 36) { d[i + 3] = Math.round(255 * GLASS_ALPHA); break; }
+      }
+    }
+    g.putImageData(img, 0, 0);
+    return c;
+  }
+  const LANDMARK_TEXTURES = { curtain101: markGlass(curtain101Texture(), [[140, 192, 208], [62, 116, 136], [88, 152, 174]]) };
+  // 高樓外牆：參數來自 data/landmarks/index.json 的 facades（lm_towers.FACADES）。一格 32 px 寬、一層 64 px 高。
+  // pattern：grid 玻璃格（兩種顏色隨機混）加每層的窗台帶和每格左邊的直框；strip 同樣的格子，中間再一條不同顏色的玻璃帶；
+  // x 一個從頂到底的 X 形斜撐加兩側的柱子；slats 橫向百葉
+  function facadeTexture(F) {
+    const bw = 32, fh = 64, c = document.createElement('canvas');
+    const W = c.width = F.bays * bw, H = c.height = F.floors * fh;
+    const g = c.getContext('2d');
+    let seed = 7;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const rgb = a => 'rgb(' + a.map(v => Math.max(0, Math.min(255, Math.round(v)))).join(',') + ')';
+    const pattern = F.pattern || 'grid';
+    g.fillStyle = rgb(F.glass);
+    g.fillRect(0, 0, W, H);
+    if (pattern === 'grid' || pattern === 'strip') {
+      for (let f = 0; f < F.floors; f++) {
+        for (let b = 0; b < F.bays; b++) {
+          const k = rnd(), t = k < 0.35 ? 1 : k < 0.5 ? 0.5 : 0;
+          const base = F.glass.map((v, i) => v + (F.glass2[i] - v) * t);
+          const grad = g.createLinearGradient(0, f * fh, 0, (f + 1) * fh);
+          grad.addColorStop(0, rgb(base.map(v => v + 12)));
+          grad.addColorStop(1, rgb(base.map(v => v - 10)));
+          g.fillStyle = grad;
+          g.fillRect(b * bw, f * fh, bw, fh);
+        }
+      }
+      const sh = Math.round(F.spandrel_h * fh), fw = Math.max(1, Math.round(F.fin_w * bw));
+      g.fillStyle = rgb(F.spandrel);
+      for (let f = 0; f < F.floors; f++) g.fillRect(0, f * fh + fh - sh, W, sh);
+      g.fillStyle = rgb(F.fin);
+      for (let b = 0; b < F.bays; b++) g.fillRect(b * bw, 0, fw, H);
+    }
+    if (pattern === 'strip') {
+      const x0 = Math.round(W * (1 - F.strip_w) / 2), x1 = W - x0;
+      g.fillStyle = rgb(F.strip);
+      g.fillRect(x0, 0, x1 - x0, H);
+      g.fillStyle = rgb(F.strip_fin);
+      for (let x = x0; x < x1; x += 12) g.fillRect(x, 0, 1, H);
+      for (let f = 0; f < F.floors; f++) g.fillRect(x0, f * fh + fh - 6, x1 - x0, 2);
+    }
+    if (pattern === 'x') {
+      const lw = Math.max(2, F.fin_w * W);
+      g.strokeStyle = rgb(F.fin);
+      g.lineWidth = lw * 0.8;
+      g.beginPath();
+      g.moveTo(lw / 2, 0); g.lineTo(W - lw / 2, H);
+      g.moveTo(W - lw / 2, 0); g.lineTo(lw / 2, H);
+      g.stroke();
+      g.fillStyle = rgb(F.fin);
+      g.fillRect(0, 0, lw, H);
+      g.fillRect(W - lw, 0, lw, H);
+      g.fillStyle = rgb(F.spandrel);
+      g.fillRect(0, 0, W, Math.max(2, Math.round(F.spandrel_h * H)));
+    }
+    if (pattern === 'slats') {
+      const sh = Math.max(2, Math.round(F.spandrel_h * fh));
+      g.fillStyle = rgb(F.fin);
+      for (let f = 0; f < F.floors; f++) g.fillRect(0, f * fh + fh - sh, W, sh);
+    }
+    if (pattern === 'banded') {
+      // 紅磚牆加白色橫帶（辰野式），每格一個白框窗。bands：[[離這層樓底的比例, 高的比例], ...]；
+      // win：[寬, 窗底離樓底, 高]（比例）。橫帶等距、窗在中間，貼圖上下顛倒也一樣。
+      g.fillStyle = rgb(F.wall);
+      g.fillRect(0, 0, W, H);
+      for (let f = 0; f < F.floors; f++) {
+        g.fillStyle = rgb(F.band);
+        for (const [y0, hh] of F.bands) g.fillRect(0, Math.round((f + y0) * fh), W, Math.max(1, Math.round(hh * fh)));
+        for (let b = 0; b < F.bays; b++) {
+          const ww = F.win[0] * bw, wh = F.win[2] * fh, x = b * bw + (bw - ww) / 2, y = (f + F.win[1]) * fh;
+          g.fillStyle = rgb(F.trim);
+          g.fillRect(x - 2, y - 2, ww + 4, wh + 4);
+          g.fillStyle = rgb(F.glass);
+          g.fillRect(x, y, ww, wh);
+        }
+      }
+    }
+    if (pattern === 'lattice') {
+      // 格子窗（臺北車站）：每層上下各半條實心帶（band 是整條佔一層的比例），每格 bay 兩邊各半根柱（pier），
+      // 中間 rows × cols 個方孔（hole：孔佔一小格的寬、高比例）。上下左右對稱，貼圖顛倒也一樣。
+      g.fillStyle = rgb(F.wall);
+      g.fillRect(0, 0, W, H);
+      g.fillStyle = rgb(F.glass);
+      for (let f = 0; f < F.floors; f++) for (let b = 0; b < F.bays; b++) {
+        const x0 = (b + F.pier / 2) * bw, x1 = (b + 1 - F.pier / 2) * bw;
+        const y0 = (f + F.band / 2) * fh, y1 = (f + 1 - F.band / 2) * fh;
+        const cw = (x1 - x0) / F.cols, ch = (y1 - y0) / F.rows;
+        for (let i = 0; i < F.cols; i++) for (let j = 0; j < F.rows; j++)
+          g.fillRect(x0 + (i + (1 - F.hole[0]) / 2) * cw, y0 + (j + (1 - F.hole[1]) / 2) * ch, F.hole[0] * cw, F.hole[1] * ch);
+      }
+    }
+    return c;
+  }
+  function mesh(pos, nor, idx, uv) {
+    const attributes = { POSITION: { size: 3, value: new Float32Array(pos) }, NORMAL: { size: 3, value: new Float32Array(nor) } };
+    if (uv) attributes.TEXCOORD_0 = { size: 2, value: new Float32Array(uv) };
+    return { attributes, indices: { size: 1, value: new Uint16Array(idx) } };
+  }
+  // 一片葉片面：中心 c，兩個半邊長向量 u、v；四個角的法向量指向樹冠外面（球形），面裡面由顯示卡內插。
+  // 原本每片切成 2×2 格（一棵樹 48 個三角形），全市的樹加影子比建物還重，改成一片兩個三角形（一棵 12 個）
+  function cards(list) {
+    const pos = [], nor = [], uv = [], idx = [];
+    for (const { c, u, v } of list) {
+      const o = pos.length / 3;
+      for (let j = 0; j <= 1; j++) for (let i = 0; i <= 1; i++) {
+        const s1 = 2 * i - 1, t1 = 2 * j - 1;
+        const q = [c[0] + s1 * u[0] + t1 * v[0], c[1] + s1 * u[1] + t1 * v[1], c[2] + s1 * u[2] + t1 * v[2]];
+        pos.push(q[0], q[1], q[2]);
+        const nz = q[2] + 0.35, l = Math.hypot(q[0], q[1], nz) || 1;
+        nor.push(q[0] / l, q[1] / l, nz / l);
+        uv.push(i, j);
+      }
+      idx.push(o, o + 1, o + 3, o, o + 3, o + 2);
+    }
+    return mesh(pos, nor, idx, uv);
+  }
+  const dirXY = (a, r) => [Math.cos(a) * r, Math.sin(a) * r, 0];
+  const upright = (a, w = 1, h = 1, z = 0) => ({ c: [0, 0, z], u: dirXY(a, w), v: [0, 0, h] });                  // 直立的面
+  const flat = (z, r, a = 0, tilt = 0) => ({ c: [0, 0, z], u: dirXY(a, r), v: [-Math.sin(a) * r, Math.cos(a) * r, tilt * r] });  // 水平的面
+  // 棕櫚：十片往外垂的羽葉（不用貼圖）
+  function palmMesh() {
+    const pos = [], nor = [], idx = [], n = 10, seg = 4;
+    for (let k = 0; k < n; k++) {
+      const a = 2 * Math.PI * k / n + (k % 2) * 0.2, ca = Math.cos(a), sa = Math.sin(a), lift = (k % 2) ? 0.15 : -0.05;
+      const o = pos.length / 3;
+      for (let s = 0; s <= seg; s++) {
+        const t = s / seg, z = 0.25 + (0.6 + lift) * t - 1.3 * t * t, w = 0.17 * Math.sin(Math.PI * Math.min(1, 0.1 + 0.9 * t));
+        pos.push(t * ca - w * sa, t * sa + w * ca, z, t * ca + w * sa, t * sa - w * ca, z);
+        const l = Math.hypot(0.3 * ca, 0.3 * sa, 1);
+        nor.push(0.3 * ca / l, 0.3 * sa / l, 1 / l, 0.3 * ca / l, 0.3 * sa / l, 1 / l);
+      }
+      for (let s = 0; s < seg; s++) { const b = o + 2 * s; idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2); }
+    }
+    return mesh(pos, nor, idx);
+  }
+  // 樹幹：六角柱，上面細一點，高 0–1
+  function trunkMesh() {
+    const pos = [], nor = [], idx = [], n = 6;
+    for (let i = 0; i < n; i++) {
+      const a = 2 * Math.PI * i / n, c = Math.cos(a), s = Math.sin(a);
+      pos.push(c, s, 0, 0.75 * c, 0.75 * s, 1);
+      nor.push(c, s, 0.1, c, s, 0.1);
+    }
+    for (let i = 0; i < n; i++) { const a = 2 * i, b = 2 * ((i + 1) % n); idx.push(a, b, a + 1, b, b + 1, a + 1); }
+    return mesh(pos, nor, idx);
+  }
+  const ROUND_CARDS = cards([upright(0), upright(Math.PI / 3), upright(2 * Math.PI / 3),
+                             flat(-0.3, 0.95, 0.3, 0.15), flat(0.25, 0.8, 1.2, -0.1), flat(0.65, 0.5, 2.0, 0.1)]);
+  const TREE_MESH = {
+    round: ROUND_CARDS, wide: ROUND_CARDS,
+    tier: cards([flat(-0.65, 1.0, 0.2), flat(-0.15, 0.82, 1.1), flat(0.32, 0.62, 2.0), flat(0.72, 0.36, 2.7),
+                 upright(0, 0.35), upright(Math.PI / 2, 0.35)]),
+    upright: cards([upright(0), upright(Math.PI / 4), upright(Math.PI / 2), upright(3 * Math.PI / 4), flat(-0.2, 0.8, 0.4), flat(0.4, 0.55, 1.4)]),
+    palm: palmMesh()
+  };
+  const TRUNK = trunkMesh();
+  // 葉片的 shader：透明的地方丟掉、乘上每棵樹的顏色、樹冠下半部壓暗
+  const leafModule = {
+    name: 'leaf',
+    vs: 'out float vLeafZ;\n',
+    fs: 'in float vLeafZ;\nvec4 leafTint;\n',
+    inject: {
+      'vs:#main-end': 'vLeafZ = positions.z;',
+      'fs:#main-start': 'leafTint = vColor;',
+      'fs:DECKGL_FILTER_COLOR': [
+        'if (color.a < 0.5) discard;',
+        'float leafShade = mix(0.84, 1.06, smoothstep(-1.0, 1.0, vLeafZ));',
+        'color = vec4(color.rgb * leafTint.rgb * leafShade, 1.0);'
+      ].join('\n')
+    }
+  };
+  class Leaf extends LayerExtension {
+    getShaders() { return { modules: [leafModule] }; }
+  }
+  Leaf.componentName = 'Leaf';
+  const LEAF = new Leaf();
+  // 樹種 → [樹形, 平常的樹冠顏色]。樹形是示意；沒列的樹種依名稱猜，再不行就當圓冠
+  const SPECIES = {
+    '榕樹': ['wide', [74, 108, 60]], '樟樹': ['round', [112, 146, 74]], '茄苳': ['round', [92, 128, 66]],
+    '楓香': ['upright', [104, 140, 70]], '黑板樹': ['tier', [70, 110, 62]], '臺灣欒樹': ['round', [104, 138, 70]],
+    '小葉欖仁': ['tier', [120, 156, 80]], '大王椰子': ['palm', [96, 132, 70]], '白千層': ['upright', [118, 140, 98]],
+    '水黃皮': ['round', [88, 126, 66]], '木棉': ['tier', [100, 134, 72]], '光蠟樹': ['upright', [108, 146, 78]],
+    '垂榕': ['round', [76, 112, 62]], '阿勃勒': ['round', [104, 140, 72]], '山櫻花': ['round', [98, 134, 72]],
+    '苦楝': ['wide', [108, 142, 78]], '盾柱木': ['wide', [98, 134, 70]], '菩提樹': ['round', [92, 130, 68]],
+    '蒲葵': ['palm', [100, 134, 76]], '芒果': ['round', [70, 104, 58]], '紫薇': ['round', [100, 134, 74]],
+    '櫸': ['upright', [100, 136, 72]], '印度紫檀': ['wide', [96, 134, 68]], '福木': ['upright', [66, 100, 56]],
+    '烏桕': ['round', [104, 138, 74]], '黃連木': ['round', [100, 136, 72]], '蘭嶼羅漢松': ['upright', [78, 112, 64]],
+    '大花紫薇': ['round', [98, 134, 72]], '黃椰子': ['palm', [110, 146, 80]], '蘭嶼烏心石': ['upright', [80, 116, 64]]
+  };
+  // 樹冠整體再調亮一點：葉子貼圖和光照都會把顏色壓暗，表格裡的顏色是樹種之間的相對深淺
+  const TREE_BRIGHT = 1.25;
+  const treeColor = (d, m) => seasonColor(d.name, d.base, m).map(c => Math.min(255, Math.round(c * d.shade * TREE_BRIGHT)));
+  function speciesStyle(name) {
+    if (SPECIES[name]) return SPECIES[name];
+    if (/椰|棕櫚|蒲葵|檳榔/.test(name)) return ['palm', [100, 134, 74]];
+    if (/松|杉|柏/.test(name)) return ['upright', [80, 112, 66]];
+    return ['round', [96, 132, 70]];
+  }
+  // 季節：只放有出處的。臺灣欒樹 9–10 月開黃花、11–12 月蒴果轉紅褐（新北市政府綠美化環境景觀處）。
+  // 花和蒴果只佔樹冠的一部分，遠看還是以綠葉為主，所以只在原本的綠上混一點顏色
+  function seasonColor(name, base, m) {
+    const tint = (c, k) => base.map((v, i) => Math.round(v + (c[i] - v) * k));
+    if (name === '臺灣欒樹') {
+      if (m === 9 || m === 10) return tint([184, 166, 74], 0.4);
+      if (m === 11 || m === 12) return tint([170, 110, 86], 0.35);
+    }
+    return base;
+  }
+
+  // ---------- 地圖 ----------
+  const roadWidth = w => ['interpolate', ['exponential', 2], ['zoom'], 12, w * 4096 / 141876, 20, w * 1048576 / 141876];
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {},
+      layers: [{ id: 'ground', type: 'background', paint: { 'background-color': SCENE.ground } }],
+      sky: { 'sky-color': '#9fc3df', 'horizon-color': '#eef2f2', 'fog-color': '#e6ebec', 'sky-horizon-blend': 0.6,
+             'horizon-fog-blend': 0.6, 'fog-ground-blend': 0.55 }
+    },
+    center: CENTER, zoom: 15.3, pitch: 62, bearing: -28, maxPitch: 78, antialias: true,
+    // 畫面解析度上限：手機（觸控為主）1.5 倍、其他 2 倍。iPhone 原本是 3 倍，要算的像素是 1.5 倍時的 4 倍
+    pixelRatio: Math.min(window.devicePixelRatio || 1, matchMedia('(pointer: coarse)').matches ? 1.5 : 2),
+    minZoom: 10, maxBounds: [[VW, VS], [VE, VN]],
+    attributionControl: { compact: true, customAttribution: '© OpenStreetMap 貢獻者、臺北市建管處套繪圖與使用執照、內政部實價登錄、' +
+      '內政部數值地形模型、內政部國土利用現況調查、臺北市行道樹及公園樹木、臺北市道路和人行道圖資、國土測繪中心通用版電子地圖' }
+  });
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+  // 手機上 MapLibre 的資料來源說明一開始是展開的，會壓到面板；先收成右下角的 (i) 按鈕，點了才展開
+  if (matchMedia('(max-width: 520px)').matches) {
+    map.once('load', () => { const a = document.querySelector('.maplibregl-ctrl-attrib'); if (a) a.classList.remove('maplibregl-compact-show'); });
+  }
+  window.__map = map;
+  // 滑鼠在地圖上移動、手指在地圖上滑動的每一個事件，MapLibre 都先算好底下的經緯度（事件的 lngLat）。
+  // 開了立體地形，算一次就要從顯示卡讀回一個像素（readPixels），CPU 得停下來等顯示卡把排隊的工作全部畫完，
+  // 地圖在動的時候每一格都卡一下（手指滑動時每根手指一次，中心點再一次）。這個網頁沒有讀這兩種事件的經緯度，
+  // 改成有人讀 lngLat 的時候才算，算法跟原本一樣，畫面和點選都不變。其他事件（點一下、按下、放開）照舊
+  {
+    const unproject = maplibregl.Map.prototype.unproject;
+    const later = p => {
+      let v = null;
+      const get = () => v || (v = unproject.call(map, p));
+      return Object.create(maplibregl.LngLat.prototype, {
+        lng: { get: () => get().lng, enumerable: true }, lat: { get: () => get().lat, enumerable: true } });
+    };
+    const hs = (map.handlers && map.handlers._handlersById) || {};
+    for (const [h, name] of [[hs.blockableMapEvent, 'mousemove'], [hs.mapEvent, 'touchmove']]) {
+      const orig = h && h[name];
+      if (typeof orig !== 'function') continue;
+      h[name] = function (...args) {
+        map.unproject = later;
+        try { return orig.apply(this, args); } finally { delete map.unproject; }
+      };
+    }
+  }
+
+  // _pickable: false：deck.gl 預設滑鼠每動一下就在下一格把可以點的圖層全部再畫一次、等顯示卡回報滑到哪一棟
+  //（給游標和滑過效果用），筆電上會讓畫面慢一半（#bench 量過）。平常關掉，要挑的時候才暫時打開（pickAt）
+  const overlay = new MapboxOverlay({ interleaved: true, layers: [], _pickable: false });
+  map.addControl(overlay);
+  window.__overlay = overlay;
+
+  let effect = new LightingEffect({ ambient: new AmbientLight({ color: [255, 255, 255], intensity: 1.0 }) });
+  let shadowDir = [0, 0], shadowColor = [0, 0, 0, 0];
+
+  function heightColor(h) {
+    const br = [15, 30, 60, 100];
+    let i = 0; while (i < br.length && h >= br[i]) i++;
+    return SCENE.ramp[i];
+  }
+
+  // ---------- 時間的氛圍 ----------
+  // 太陽越低，陽光走過的大氣越長、藍光被散掉越多，所以越暖；太陽在地平線下 6° 以下（民用曙暮光結束）就是夜晚。
+  // 天空、地平線、霧在白天、黃昏、夜晚三組顏色之間內插。
+  let windowGlow = 0;                                  // 夜裡窗戶亮燈的強度（updateLights 算，Facade 傳進著色器）
+  const mixC = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  const hex = c => '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
+  const smooth = (e0, e1, x) => { const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+  const ATMOS = {
+    day: { sky: [159, 195, 223], horizon: [238, 242, 242], fog: [230, 235, 236] },
+    dusk: { sky: [124, 152, 196], horizon: [244, 196, 152], fog: [236, 210, 186] },
+    night: { sky: [24, 34, 60], horizon: [58, 66, 96], fog: [40, 48, 72] }
+  };
+  // fx=light：天頂藍一點，遠方的霧偏灰藍（臺北常見的濕空氣），地平線接近白
+  const ATMOS_REAL = {
+    day: { sky: [128, 174, 220], horizon: [226, 233, 237], fog: [205, 216, 226] },
+    dusk: { sky: [110, 140, 192], horizon: [242, 192, 150], fog: [222, 200, 182] },
+    night: { sky: [24, 34, 60], horizon: [58, 66, 96], fog: [40, 48, 72] }
+  };
+  // 開了 3D 地形之後，MapLibre 會把地面圖層先畫成貼圖再貼到地形上。樣式一改它會重畫一次貼圖，
+  // 但顏色漸變的過程不會跟著重畫，會停在剛開始的顏色，所以 'tint' 圖層關掉漸變（見載入時的圖層設定）。
+  // 每次改樣式都要重畫整片地面，所以色調和地形陰影方向都取整，拖時間軸時差一點點就不改。
+  function updateLights() {
+    const t = stamp();
+    const s = sunPosition(new Date(t), CENTER[1], CENTER[0]);
+    const k = Math.max(0, Math.min(1, Math.sin(s.alt * Math.PI / 180) * 2.5));
+    const warm = 1 - smooth(2, 25, s.alt);
+    const night = 1 - smooth(-6, 1, s.alt);
+    const dusk = warm * (1 - night);
+    // fx=light：照片裡晴天的向陽面和背陽面亮度差兩倍多，背陽面主要靠天空的藍光照亮。所以太陽調強、環境光調弱帶藍，
+    // 天空光（從正上方）調強，再加一道從地面往上的暖色反光，屋簷底下、陽台底下才不會是死黑。
+    const L = FX.has('light');
+    windowGlow = Math.round(Math.max(night, 0.3 * dusk) * 50) / 50;   // 入夜的窗燈（fx=bld）；黃昏先亮一部分
+    const sunNew = new SunLight({ timestamp: t, color: mixC(L ? [255, 243, 224] : [255, 246, 232], [255, 170, 104], warm),
+                                  intensity: (L ? 0.35 + 1.35 * k : 0.3 + 0.95 * k) * (1 - night) });
+    const ambNew = new AmbientLight({ color: mixC(L ? [214, 226, 250] : [244, 247, 255], [150, 165, 210], night),
+                                      intensity: (L ? 0.78 + 0.08 * k : 0.8 + 0.2 * k) * (1 - 0.6 * night) });
+    const skyNew = new DirectionalLight({ color: L ? [200, 218, 255] : [228, 236, 255], intensity: (L ? 0.3 : 0.12 + 0.05 * k) * (1 - night),
+                                          direction: [0, 0, -1] });
+    const lights = { ambient: ambNew, sun: sunNew, sky: skyNew };
+    if (L) lights.bounce = new DirectionalLight({ color: [255, 236, 212], intensity: 0.12 * (1 - night), direction: [0, 0, 1] });
+    effect = new LightingEffect(lights);
+    const atm = L ? ATMOS_REAL : ATMOS;
+    const at = key => mixC(mixC(atm.day[key], atm.dusk[key], dusk), atm.night[key], night);
+    atmosColors = { fog: at('fog'), horizon: at('horizon') };
+    {
+      const ar = s.alt * Math.PI / 180, zr = s.az * Math.PI / 180, c01 = c => c.map(v => v / 255);
+      shineProps = { sunDir: [Math.sin(zr) * Math.cos(ar), Math.cos(zr) * Math.cos(ar), Math.sin(ar)],
+                     zenith: c01(at('sky')), horizon: c01(at('horizon')), haze: c01(at('fog')), params: [1, s.alt > 0 ? 1 - night : 0, 0, 0] };
+    }
+    try {
+      map.setSky({ 'sky-color': hex(at('sky')), 'horizon-color': hex(at('horizon')), 'fog-color': hex(at('fog')),
+                   'sky-horizon-blend': 0.6, 'horizon-fog-blend': L ? ATMOS_HORIZON : 0.6, 'fog-ground-blend': L ? ATMOS_GROUND : 0.55 });
+      // MapLibre 4.7 的 Sky.calculateFogBlendOpacity（傾角 60° 以下不起霧）換成這裡的版本，地面和建物的霧才一致
+      if (L && map.style && map.style.sky) map.style.sky.calculateFogBlendOpacity = fogOpacity;
+    } catch (e) { /* 樣式還沒載入完，載入後會再呼叫一次 */ }
+    // MapLibre 畫的地面不受 deck.gl 的光影響，用一層半透明的顏色蓋上去：黃昏偏暖、夜晚轉暗
+    const tintColor = night > 0.01 ? '#0d1530' : '#ff9a52';
+    const tintOpacity = Math.round((night > 0.01 ? (L ? 0.68 : 0.58) * night : 0.07 * dusk) * 50) / 50;   // fx=light：夜裡地面再暗一點
+    if (map.getLayer('tint')) {
+      map.setPaintProperty('tint', 'fill-color', tintColor);
+      map.setPaintProperty('tint', 'fill-opacity', tintOpacity);
+    }
+    // 影子往太陽的反方向，長度 = 高度 ÷ tan(太陽高度)；太陽太低（3° 以下）就不畫
+    const tanAlt = Math.tan(Math.max(s.alt, 3) * Math.PI / 180), az = s.az * Math.PI / 180;
+    shadowDir = [-Math.sin(az) / tanAlt, -Math.cos(az) / tanAlt];
+    // fx=light：太陽調強了，地上的影子也跟著深一點
+    shadowColor = [0.16, 0.19, 0.27, showShadow && s.alt > 3 ? (L ? 0.3 + 0.24 * k : 0.22 + 0.22 * k) : 0];
+    if (map.getLayer('hillshade')) map.setPaintProperty('hillshade', 'hillshade-illumination-direction', Math.round(s.az / 5) * 5 % 360);
+    month = new Date(t + TZ * 3600000).getUTCMonth() + 1;
+    const hh = String(Math.floor(minutes / 60)).padStart(2, '0') + ':' + String(minutes % 60).padStart(2, '0');
+    document.getElementById('time-out').textContent = hh;
+    const dirs = ['北', '東北', '東', '東南', '南', '西南', '西', '西北'];
+    document.getElementById('sun-out').textContent = s.alt > 0
+      ? '太陽高度 ' + s.alt.toFixed(0) + '°，在' + dirs[Math.round(s.az / 45) % 8] + '方（方位角 ' + s.az.toFixed(0) + '°）'
+      : (minutes < 720 ? '太陽還沒出來' : '太陽已經下山');
+  }
+
+  // ---------- 圖層 ----------
+  // 全市的建物、樹、高架橋切成 z14 圖磚（tile_prep.py），deck.gl 的 TileLayer 依畫面一塊一塊載入，
+  // 每塊各自一組圖層。畫面縮到 12.5 級以下就不載（一塊約 2 km 見方，縮太小一次要載太多塊）。
+  // 影子分兩步（見上面「地面影子」）：每塊圖磚自己的影子圖層只改 alpha，地標的影子也一樣，最後一個大面一次混上影子色。
+  const shadowProps = () => ({ shadowDir, shadowColor, parameters: SHADOW_PARAMS, pickable: false, material: false });
+  const meshShadow = (id, data, m, texture = null) => new SimpleMeshLayer({
+    id, data, mesh: m, texture, ...shadowProps(), extensions: withAtmos([SHADOW_MESH], FOG_SHADOW),
+    getPosition: d => d.p, getScale: d => d.s, getOrientation: d => [0, d.yaw, 0], getColor: d => d.gcol
+  });
+  const BUILDING_MAT = { ambient: 0.55, diffuse: 0.6, shininess: 16, specularColor: [25, 25, 25] };
+  const TREE_MAT = { ambient: 0.6, diffuse: 0.65, shininess: 1, specularColor: [0, 0, 0] };
+
+  // 一塊圖磚的圖層：接觸陰影、影子、建物、高架橋、樹。id 是 TileLayer 給這塊的前綴。
+  // 沒有資料的圖層不建：deck.gl 的多邊形圖層資料是空的時候，畫牆面會用 -1 個實例，WebGL 會報錯
+  //（很多圖磚沒有高架橋）。最後 filter 掉 null
+  function tileLayers(T, id, tileId) {
+    const shadowOn = shadowColor[3] > 0, real = mode === 'real', sp = shadowProps();
+    const has = a => a && a.length > 0;
+    const out = [has(T.halos) && new PathLayer({
+      id: id + '-contact', data: T.halos, getPath: d => d.path, getWidth: d => d.w, widthUnits: 'meters', _pathType: 'loop',
+      getColor: [22, 28, 40, 92], extensions: withAtmos([CONTACT], FOG_ALPHA), pickable: false,
+      parameters: { depthWriteEnabled: false, depthCompare: 'less-equal' }
+    })];
+    if (shadowOn) {
+      out.push(has(T.buildings) && new SolidPolygonLayer({
+        id: id + '-buildings-shadow', data: T.buildings, extruded: true, filled: true, ...sp, extensions: withAtmos([SHADOW_POLY], FOG_SHADOW),
+        getPolygon: d => d.poly, getElevation: d => d.top - d.base, getFillColor: d => d.gcol
+      }));
+      out.push(has(T.bridgeParts) && new SolidPolygonLayer({
+        id: id + '-bridges-shadow', data: T.bridgeParts, extruded: true, filled: true, ...sp, extensions: withAtmos([SHADOW_POLY], FOG_SHADOW),
+        getPolygon: d => d.poly, getElevation: d => d.e, getFillColor: d => d.gcol
+      }));
+      if (showTrees) {
+        for (const s of Object.keys(TREE_MESH)) {
+          if (T.treeGroups[s]) out.push(meshShadow(id + '-trees-shadow-' + s, T.treeGroups[s], TREE_MESH[s], s === 'palm' ? null : LEAF_TEXTURE));
+        }
+        if (has(T.trunks)) out.push(meshShadow(id + '-trunks-shadow', T.trunks, TRUNK));
+      }
+    }
+    out.push(has(T.buildings) && new SolidPolygonLayer({
+      id: id + '-buildings', data: T.buildings, extruded: true, filled: true, pickable: true,
+      getPolygon: d => d.poly, getElevation: d => d.top - d.base,
+      getFillColor: d => (real ? d.wall : heightColor(d.top)),
+      getLineColor: d => (real ? d.code : d.codePlain),
+      material: BUILDING_MAT,
+      highlightedObjectIndex: selected && selected.tile === tileId ? selected.index : -1, highlightColor: [43, 108, 113, 200],
+      extensions: withAtmos([FACADE]), facadeEnabled: showFloors,
+      updateTriggers: { getFillColor: mode, getLineColor: mode }
+    }));
+    // fx=bld：頂樓加蓋和水塔，鏡頭夠近（DETAIL_ZOOM 以上）才畫
+    if (FX.has('bld') && FX.has('roof') && detailOn) out.push(has(T.roofParts) && new SolidPolygonLayer({
+      id: id + '-roofs', data: T.roofParts, extruded: true, filled: true, pickable: false,
+      getPolygon: d => d.poly, getElevation: d => d.e, getFillColor: d => d.c, getLineColor: d => d.code,
+      material: { ambient: 0.55, diffuse: 0.6, shininess: 32, specularColor: [60, 60, 60] },
+      extensions: withAtmos([FACADE]), facadeEnabled: false
+    }));
+    out.push(has(T.bridgeParts) && new SolidPolygonLayer({
+      id: id + '-bridges', data: T.bridgeParts, extruded: true, filled: true, pickable: false,
+      getPolygon: d => d.poly, getElevation: d => d.e, getFillColor: d => d.c, extensions: withAtmos([]),
+      material: { ambient: 0.55, diffuse: 0.6, shininess: 8, specularColor: [15, 15, 15] }
+    }));
+    out.push(has(T.bridgeMarks) && new SolidPolygonLayer({
+      id: id + '-bridge-marks', data: T.bridgeMarks, extruded: false, filled: true, pickable: false,
+      getPolygon: d => d.poly, getFillColor: d => d.c, extensions: withAtmos([])
+    }));
+    if (showTrees) {
+      for (const s of Object.keys(TREE_MESH)) {
+        if (!T.treeGroups[s]) continue;
+        const palm = s === 'palm';
+        out.push(new SimpleMeshLayer({
+          id: id + '-trees-' + s, data: T.treeGroups[s], mesh: TREE_MESH[s], pickable: false, material: TREE_MAT,
+          texture: palm ? null : LEAF_TEXTURE, extensions: withAtmos(palm ? [] : [LEAF]),
+          getPosition: d => d.p, getScale: d => d.s, getOrientation: d => [0, d.yaw, 0],
+          getColor: d => treeColor(d, month), updateTriggers: { getColor: month }
+        }));
+      }
+      if (has(T.trunks)) out.push(new SimpleMeshLayer({
+        id: id + '-trunks', data: T.trunks, mesh: TRUNK, pickable: false, material: TREE_MAT, extensions: withAtmos([]),
+        getPosition: d => d.p, getScale: d => d.s, getOrientation: d => [0, d.yaw, 0], getColor: d => d.c
+      }));
+    }
+    return out.filter(Boolean);
+  }
+
+  // 畫面傾斜很大時，看得到的 z14 圖磚可以多到二十幾塊（一路到地平線），手機的記憶體和流量吃不消。
+  // 只載離「相機正下方到畫面中心」這條線 2.5 km 以內的圖磚，更遠的本來就在霧裡。
+  const NEAR_M = 2500;
+  function tileGap(t, a, b) {                          // 圖磚到線段 a→b 的最近距離（公尺），線段上取 9 點近似
+    const n = 2 ** t.z, lon = i => i / n * 360 - 180;
+    const lat = j => Math.atan(Math.sinh(Math.PI * (1 - 2 * j / n))) * 180 / Math.PI;
+    const W = lon(t.x), E = lon(t.x + 1), N = lat(t.y), S = lat(t.y + 1);
+    let best = Infinity;
+    for (let k = 0; k <= 8; k++) {
+      const p = [a[0] + (b[0] - a[0]) * k / 8, a[1] + (b[1] - a[1]) * k / 8];
+      const dx = Math.max(W - p[0], 0, p[0] - E) * M_LON, dy = Math.max(S - p[1], 0, p[1] - N) * M_LAT;
+      best = Math.min(best, Math.hypot(dx, dy));
+    }
+    return best;
+  }
+  class NearTileset extends deck._Tileset2D {
+    getTileIndices(opts) {
+      const v = opts.viewport, cam = v.unprojectPosition(v.cameraPosition), c = [v.longitude, v.latitude];
+      return super.getTileIndices(opts).filter(t => t.z !== 14 || tileGap(t, cam, c) < NEAR_M);
+    }
+  }
+
+  function layers() {
+    const shadowOn = shadowColor[3] > 0, real = mode === 'real';
+    const out = [];
+    if (tileSet) {
+      out.push(new TileLayer({
+        // 圖磚只有 z14。zoomOffset 1：畫面 12.5 級以上就拿 z14 的圖磚（round(zoom + 1) ≥ 14）。
+        // 不能設 minZoom: 14，deck.gl 會在畫面縮到 14 級以下時整層不畫；改用 visibleMinZoom 管 12.5 級以下不載也不畫
+        id: 'city', data: 'data/tiles/{z}/{x}/{y}.json', tileSize: 512, maxZoom: 14, zoomOffset: 1, visibleMinZoom: 12.5,
+        maxCacheSize: 12, getTileData: loadTile, pickable: true,         // 最多留 12 塊在記憶體，手機才吃得消
+        TilesetClass: NearTileset,
+        renderSubLayers: p => (p.data ? tileLayers(p.data, p.id, p.tile.id) : null),
+        updateTriggers: { renderSubLayers: renderCount }
+      }));
+    }
+    // 地標：網格載入了才畫（loadNearLandmarks）。寫實模式用網格自己的頂點顏色或貼圖；依高度模式跟一般建物
+    // 一樣用高度的顏色。一個地標可能分成幾份（平面、平滑面、貼圖），每份一個圖層，id 是 landmark-序號-份
+    landmarks.forEach((L, i) => {
+      if (!L.parts) return;
+      L.parts.forEach((P, k) => {
+        if (shadowOn) out.push(meshShadow('landmark-shadow-' + i + '-' + k, [L], P.plain));
+        const tex = real && P.texture ? LANDMARK_TEXTURES[P.texture] || null : null;
+        // 照片貼圖（photo:）本身就有實景的暗角和牆腳，不再疊 AO，也沒有標玻璃（fx=mat 的玻璃只認 facade:、curtain101）
+        const photo = !!(P.texture && P.texture.startsWith('photo:'));
+        const texMat = !!(tex && P.texture.startsWith('tex:'));        // 照片取樣材質（fx=tex），自己處理 AO、不當玻璃
+        out.push(new SimpleMeshLayer({
+          id: 'landmark-' + i + '-' + k, data: [L], mesh: real ? P.real : P.plain, pickable: true,
+          texture: tex, textureParameters: tex ? (photo ? PHOTO_SAMPLER : texMat ? TEX_SAMPLER : REPEAT) : null,
+          getPosition: d => d.p, getOrientation: [0, 0, 0], getColor: real ? [255, 255, 255] : heightColor(L.top),
+          material: FX.has('mat') && real && P.texture === 'metal' ? METAL_MAT : BUILDING_MAT,
+          extensions: withAtmos(texMat ? [TEXMAT] : [...(FX.has('ao') && real && !photo ? [LM_AO] : []),
+                                 ...(FX.has('mat') && real ? (P.texture === 'metal' ? [SHINE_METAL] : tex && !photo ? [SHINE_GLASS] : []) : [])]),
+          texBase: P.mat ? P.mat.base : [1, 1, 1], texSize: P.mat ? P.mat.size : 1,
+          highlightedObjectIndex: selectedLm === i ? 0 : -1, highlightColor: [43, 108, 113, 200],
+          updateTriggers: { getColor: mode }
+        }));
+      });
+    });
+    FURN.shown = !!FURN.meshes && map.getZoom() >= FURN_MIN_ZOOM;
+    if (FURN.shown) {
+      const pos = d => [d[0], d[1], d[2]], ori = d => [0, d[3], 0], scl = d => [d[4], d[5], d[6]];
+      for (const [name, arr] of Object.entries(furnAll())) {
+        const M = FURN.meshes[name];
+        if (!M || !arr.length) continue;
+        M.forEach((P, k) => {
+          if (shadowOn) out.push(new SimpleMeshLayer({
+            id: 'furn-shadow-' + name + '-' + k, data: arr, mesh: P.plain, ...shadowProps(), extensions: [SHADOW_MESH],
+            getPosition: pos, getOrientation: ori, getScale: scl, getColor: d => groundColor(d[2])
+          }));
+          out.push(new SimpleMeshLayer({
+            id: 'furn-' + name + '-' + k, data: arr, mesh: real ? P.real : P.plain, pickable: false,
+            getPosition: pos, getOrientation: ori, getScale: scl, getColor: real ? [255, 255, 255] : [190, 190, 190],
+            material: BUILDING_MAT, updateTriggers: { getColor: mode }
+          }));
+        });
+      }
+    }
+    if (shadowOn) {
+      out.push(new SolidPolygonLayer({
+        id: 'shadow-resolve', data: RESOLVE_DATA, filled: true, extruded: false, pickable: false,
+        getPolygon: d => d.poly, getFillColor: SHADOW_TINT, parameters: RESOLVE_PARAMS
+      }));
+    }
+    return out;
+  }
+
+  // 細節（頂樓加蓋、水塔）只在鏡頭夠近時畫；縮放跨過門檻時重建圖層
+  const DETAIL_ZOOM = 15.8;
+  let detailOn = false;
+  map.on('zoomend', () => { const d = map.getZoom() >= DETAIL_ZOOM; if (d !== detailOn && ready) render(); });
+  function render() {
+    detailOn = map.getZoom() >= DETAIL_ZOOM;
+    updateLights();
+    renderCount++;
+    overlay.setProps({ layers: layers(), effects: [effect] });
+  }
+
+  // ---------- 點選 ----------
+  // 面板裡的資訊：rows 是 [欄名, 內容] 的清單，內容可以是文字或連結；沒有就顯示提示
+  function showInfo(rows) {
+    const info = document.getElementById('info');
+    info.textContent = '';
+    if (!rows) { info.append(el('span', '點一棟建物看它的層數、高度和資料來源。', 'note')); return; }
+    const dl = el('dl');
+    for (const [k, v] of rows) { const dd = el('dd'); dd.append(v); dl.append(el('dt', k), dd); }
+    info.append(dl);
+  }
+  function link(text, href) {
+    const a = el('a', text);
+    a.href = href; a.target = '_blank'; a.rel = 'noopener';
+    return a;
+  }
+  function buildingRows(b) {
+    const p = b.p, rows = [];
+    rows.push(['地上層數', p.f ? p.f + ' 層' : '—']);
+    rows.push(['高度', p.h + ' m' + (p.b ? '（底部離地 ' + p.b + ' m）' : '')]);
+    rows.push(['高度來源', SOURCE[p.s] || '—']);
+    if (b.lu) rows.push(['土地用途', landuseName(b.lu) + '（國土利用調查）']);
+    if (p.g !== undefined) rows.push(['地面高程', p.g + ' m']);
+    if (p.y) rows.push(['完工年份', String(p.y) + (p.o ? '（實價登錄）' : '')]);
+    if (p.u) rows.push(['使照號碼', p.u]);
+    if (p.o) rows.push(['輪廓來源', link('OSM ' + p.o, 'https://www.openstreetmap.org/' + (p.o[0] === 'r' ? 'relation/' : 'way/') + p.o.slice(1))]);
+    return rows;
+  }
+  // 地標的出處依網址顯示成機構名稱，滑鼠移上去看得到那個出處支持哪些尺寸
+  const LM_SOURCE = {
+    'www.skyscrapercenter.com': 'CTBUH', 'en.skyscrapers.tw': 'skyscrapers.tw', 'www.taiwan.net.tw': '交通部觀光署',
+    'www.aisc.org': 'AISC 期刊', 'www.thorntontomasetti.com': 'Thornton Tomasetti', 'core.ac.uk': 'MIT 碩士論文',
+    'www.openstreetmap.org': 'OpenStreetMap', 'www.moc.gov.tw': '文化部'
+  };
+  function landmarkRows(L) {
+    const src = el('span');
+    L.sources.filter(s => s.url).forEach((s, i) => {
+      const host = new URL(s.url).hostname;
+      const a = link(LM_SOURCE[host] || host, s.url);
+      a.title = s.item;
+      if (i) src.append('、');
+      src.append(a);
+    });
+    return [['名稱', L.name], ['高度', Math.round(L.top * 10) / 10 + ' m'],
+            ['模型', '依公開資料做的簡化模型，部分尺寸是估計值（見資料來源）'], ['尺寸出處', src]];
+  }
+
+  // 點選：用地圖的 click 事件，自己呼叫 deck.gl 的 pickObject（手機的點擊也走這裡）
+  // 點到建物時資訊照樣寫進面板；面板收起來就維持收起（不自己跳出來），展開的時候才把資訊捲到看得到的地方
+  // 只有建物和地標可以點（圖磚裡其他圖層都設成不能點）；layerIds 比對的是 id 開頭，'city' 涵蓋所有圖磚
+  const pickIds = () => ['city', 'landmark-'];         // 'landmark-' 涵蓋每個地標的每一份
+  function pickAt(p) {
+    overlay.setProps({ _pickable: true });
+    const o = overlay.pickObject({ x: p.x, y: p.y, radius: 2, layerIds: pickIds() });
+    overlay.setProps({ _pickable: false });
+    return o;
+  }
+  map.on('click', e => {
+    const o = pickAt(e.point);
+    const lm = o && o.layer.id.startsWith('landmark-') ? parseInt(o.layer.id.split('-')[1], 10) : -1;
+    selectedLm = lm;
+    selected = o && lm < 0 && o.tile ? { tile: o.tile.id, index: o.index } : null;
+    showInfo(lm >= 0 ? landmarkRows(landmarks[lm]) : selected ? buildingRows(o.object) : null);
+    if (o && !document.getElementById('panel').classList.contains('closed')) {
+      document.getElementById('info').scrollIntoView({ block: 'nearest' });
+    }
+    render();
+  });
+  // 滑鼠移到建物上時游標變成手指。挑一次就要讓顯示卡把可以點的圖層再畫一次，所以滑鼠停下來 120 ms、
+  // 地圖也沒在動的時候才挑
+  let hoverTimer = 0, hoverPoint = null;
+  map.on('mousemove', e => {
+    hoverPoint = e.point;
+    clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => {
+      if (map.isMoving()) return;
+      map.getCanvas().style.cursor = pickAt(hoverPoint) ? 'pointer' : '';
+    }, 120);
+  });
+
+  // ---------- 路面（street_tiles.py） ----------
+  // 車道、人行道、分隔島的面和標線的中心線，z15 以上才有。artifact 每版最多 511 個檔，圖磚依 z14 打包成 JSON，
+  // streets:// 協定先載那一包（同一包只載一次），再取出要的那一塊、解回位元組交給 MapLibre。
+  // 在斑馬線圖層之後、tint 之前呼叫，圖層照順序疊在最上面
+  // 全市的街道設施（路燈、號誌、標誌、郵筒⋯）：同一種共用一個網格（instancing）。實例在路面包裡（名稱 "furniture"），
+  // 包載入了才有；網格在 furniture_meshes.json。15 級以下不畫（太小看不到，又很多個）
+  const FURN = { meshes: null, tiles: new Map(), all: null, shown: false };
+  const FURN_MIN_ZOOM = 15;
+  let furnTimer = 0;
+  function furnRender() { clearTimeout(furnTimer); furnTimer = setTimeout(() => { if (ready) render(); }, 150); }
+  function furnAll() {
+    if (!FURN.all) {
+      FURN.all = {};
+      for (const t of FURN.tiles.values()) for (const [name, arr] of Object.entries(t)) (FURN.all[name] = FURN.all[name] || []).push(...arr);
+    }
+    return FURN.all;
+  }
+  // 全市的包（format: "gzjson"）是 JSON 裡一串 base64：street_tiles.py 的 pack（「varint 名稱長度、名稱、varint 資料長度、MVT」
+  // 一塊接一塊）再 gzip。artifact 不能放 .bin，所以用 base64 包起來。舊的單一區域包是 JSON（名稱 → MVT 的 base64）
+  async function unpackBundle(buf) {
+    const raw = new Uint8Array(await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+    const out = new Map(), dec = new TextDecoder();
+    let pos = 0;
+    const vu = () => { let v = 0, m = 1, b; do { b = raw[pos++]; v += (b & 127) * m; m *= 128; } while (b >= 128); return v; };
+    while (pos < raw.length) {
+      const n = vu(), key = dec.decode(raw.subarray(pos, pos + n)); pos += n;
+      const len = vu(); out.set(key, raw.slice(pos, pos + len)); pos += len;
+    }
+    return out;
+  }
+  function addStreets(si) {
+    const bundles = new Map(), have = new Set(si.bundles.map(b => b[0] + '_' + b[1])), gz = si.format === 'gzjson';
+    const load = k => getJSON('data/streets/' + k + '.json')
+      .then(j => gz ? unpackBundle(b64bytes(j.data)) : new Map(Object.entries(j).map(([key, b64]) => [key, b64bytes(b64)])))
+      .then(m => {
+        if (m.has('furniture')) { FURN.tiles.set(k, JSON.parse(new TextDecoder().decode(m.get('furniture')))); FURN.all = null; furnRender(); }
+        return m;
+      });
+    if (si.furniture) {
+      getJSON('data/streets/furniture_meshes.json').then(j => {
+        FURN.meshes = Object.fromEntries(Object.entries(j).map(([name, parts]) => [name, parts.map(decodeLandmarkPart)]));
+        furnRender();
+      }).catch(e => console.warn('街道設施網格', e));
+    }
+    maplibregl.addProtocol('streets', async params => {
+      const [z, x, y] = params.url.slice('streets://'.length).split('/').map(Number);
+      const k = (x >> (z - si.bundle_zoom)) + '_' + (y >> (z - si.bundle_zoom));
+      if (!have.has(k)) return { data: new ArrayBuffer(0) };
+      if (!bundles.has(k)) bundles.set(k, load(k).catch(e => { bundles.delete(k); throw e; }));
+      const bytes = (await bundles.get(k)).get(z + '/' + x + '/' + y);
+      if (!bytes) return { data: new ArrayBuffer(0) };
+      return { data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
+    });
+    map.addSource('streets', { type: 'vector', tiles: ['streets://{z}/{x}/{y}'], minzoom: si.minzoom, maxzoom: si.maxzoom, bounds: si.bounds });
+    // 表面的顆粒：每個像素隨機明暗，再疊一層 8 像素一格的斑駁，避免整片同一個顏色。顏色取自正射影像上的柏油和人行道
+    const grain = (name, rgb, fine, coarse, seed) => {
+      const n = 128, data = new Uint8ClampedArray(n * n * 4); let s = seed;
+      const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+      const blot = Array.from({ length: 17 * 17 }, rnd);
+      const B = (i, j) => blot[(j % 16) * 17 + (i % 16)];
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        const fx = x / 8, fy = y / 8, i = Math.floor(fx), j = Math.floor(fy), u = fx - i, v = fy - j;
+        const b = B(i, j) * (1 - u) * (1 - v) + B(i + 1, j) * u * (1 - v) + B(i, j + 1) * (1 - u) * v + B(i + 1, j + 1) * u * v;
+        const d = (rnd() - 0.5) * 2 * fine + (b - 0.5) * 2 * coarse, q = (y * n + x) * 4;
+        data[q] = rgb[0] + d; data[q + 1] = rgb[1] + d; data[q + 2] = rgb[2] + d; data[q + 3] = 255;
+      }
+      map.addImage(name, { width: n, height: n, data });
+    };
+    grain('st-old', [118, 120, 122], 6, 5, 11);         // 舊柏油：偏灰
+    grain('st-mid', [101, 104, 107], 6, 4, 23);
+    grain('st-new', [80, 83, 87], 5, 3, 37);            // 近兩三年重鋪：比較黑
+    grain('st-side', [188, 183, 174], 7, 6, 51);        // 人行道鋪面
+    grain('st-median', [126, 145, 102], 9, 10, 71);     // 分隔島的草和灌木
+    const surf = (id, kind, pattern) => map.addLayer({ id, type: 'fill', source: 'streets', 'source-layer': 'surface',
+      minzoom: 15, filter: ['==', ['get', 'kind'], kind], paint: { 'fill-pattern': pattern } });
+    surf('st-carriage', 'carriage', ['case', ['>=', ['get', 'year'], 2023], 'st-new', ['>=', ['get', 'year'], 2021], 'st-mid', 'st-old']);
+    surf('st-median', 'median', 'st-median');
+    surf('st-sidewalk', 'sidewalk', 'st-side');
+    // 地標園區的地面（site_surfaces.py）：廣場鋪面、停車場、草地、花園、步道、水面
+    grain('st-plaza', [204, 200, 191], 5, 4, 83);       // 花崗石鋪面
+    grain('st-lawn', [128, 158, 94], 10, 12, 97);       // 草地
+    grain('st-garden', [98, 128, 78], 12, 16, 101);     // 花園、灌木
+    grain('st-path', [196, 189, 175], 6, 5, 107);
+    surf('st-plaza', 'plaza', 'st-plaza');
+    surf('st-parking', 'parking', 'st-old');
+    surf('st-lawn', 'lawn', 'st-lawn');
+    surf('st-garden', 'garden', 'st-garden');
+    surf('st-path', 'path', 'st-path');
+    map.addLayer({ id: 'st-water', type: 'fill', source: 'streets', 'source-layer': 'surface', minzoom: 15,
+                   filter: ['==', ['get', 'kind'], 'water'], paint: { 'fill-color': '#5b7a80' } });
+    // 運動場（跑道、球場）：每一塊的顏色是 site_surfaces.py 從正射影像量的（color 欄位）
+    map.addLayer({ id: 'st-sport', type: 'fill', source: 'streets', 'source-layer': 'surface', minzoom: 15,
+                   filter: ['==', ['get', 'kind'], 'sport'], paint: { 'fill-color': ['to-color', ['get', 'color'], '#849689'] } });
+    // 人行道上的樹穴、花圃、人孔蓋（臺北市人行道固定設施物）
+    map.addLayer({ id: 'st-items', type: 'fill', source: 'streets', 'source-layer': 'surface', minzoom: 16,
+                   filter: ['in', ['get', 'kind'], ['literal', ['treepit', 'planter', 'manhole']]],
+                   paint: { 'fill-color': ['match', ['get', 'kind'], 'treepit', '#5f5448', 'planter', '#7b9a5e', '#77736d'] } });
+    // 標線的寬度照實際公尺數換成像素：512 像素的圖磚在北緯 25° 時，z 級一像素約 70915 / 2^z 公尺
+    const px = ['interpolate', ['exponential', 2], ['zoom'], 15, ['*', ['get', 'w'], 32768 / 70915], 22, ['*', ['get', 'w'], 4194304 / 70915]];
+    // 緣石邊先畫：暗的一條（水溝蓋和緣石的陰影）、亮的一條（緣石頂面），再畫白線、黃線
+    for (const [id, color, rgb, op] of [['st-gutter', 'gutter', '#33363a', 0.32], ['st-curb', 'curb', '#d4d2cc', 1],
+                                         ['st-mark-white', 'white', '#f1f0ea', 0.92], ['st-mark-yellow', 'yellow', '#e9b631', 0.92]]) {
+      map.addLayer({ id, type: 'line', source: 'streets', 'source-layer': 'marking', minzoom: 16, filter: ['==', ['get', 'color'], color],
+                     layout: { 'line-cap': 'butt', 'line-join': 'miter' }, paint: { 'line-color': rgb, 'line-width': px, 'line-opacity': op } });
+    }
+  }
+
+  // ---------- 載入 ----------
+  async function getJSON(url, signal) {
+    const r = await fetch(url, { signal });
+    if (!r.ok) throw new Error(url + '：' + r.status);
+    return r.json();
+  }
+  function decodeRing(a) {
+    const out = new Array(a.length / 2);
+    let x = 0, y = 0;
+    for (let i = 0; i < a.length; i += 2) { x += a[i]; y += a[i + 1]; out[i / 2] = [x / 1e6, y / 1e6]; }
+    return out;
+  }
+
+  // 一塊圖磚的建物 → out。replaced：被地標網格取代的 OSM 編號和使照號碼，這些量體不畫
+  function prepBuildings(bj, out, roofs) {
+    const bld = FX.has('bld');
+    bj.f.forEach((p, i) => {
+      if (replaced.has(p.o) || replaced.has(p.u)) return;
+      const baseM = p.b || 0, ground = p.g || 0;
+      const code = p.l !== undefined ? bj.lu[p.l] : '';
+      // 牆色都一樣，每棟亮度差一點點，看起來才不會是同一塊塑膠
+      const v = 0.94 + 0.08 * jitter(i + 1);
+      let wall = SCENE.wall.map(c => Math.min(255, Math.round(c * v)));
+      let storey = p.f ? (p.h - baseM) / p.f : 0;
+      let look = 0, seed = 255;
+      if (bld) {
+        const k = buildingLook(p, code, baseM, i);
+        wall = k.wall; look = k.look; seed = k.seed;
+        if (!storey && p.h - baseM > 4) storey = (p.h - baseM) / Math.max(1, Math.round((p.h - baseM) / 3.2));
+      }
+      const st = Math.min(255, Math.round(storey * 10));
+      for (const rings of bj.g[i]) {
+        const poly = rings.map(r => decodeRing(r).map(c => [c[0], c[1], ground + baseM]));
+        out.push({
+          p, lu: code, base: baseM, top: p.h, wall, gcol: groundColor(p.gc !== undefined ? p.gc : ground),
+          code: [st, look, 255, seed], codePlain: [st, 0, 0, 255], poly
+        });
+        if (bld && roofs && FX.has('roof')) rooftop(p, poly[0], ground + p.h, look, i, roofs);
+      }
+    });
+  }
+
+  // ---------- 一般建物的外觀（fx=bld） ----------
+  // 圖磚裡只有用途（國土利用調查）、完工年份（一半左右有）、層數和高度，外觀依這些猜：
+  //   1 老公寓：住宅、6 層以下、1990 年前或沒有年份。二丁掛或馬賽克磁磚，鋁窗外面加鐵窗，常有頂樓加蓋和水塔
+  //   2 電梯大樓：住宅 7–15 層、2005 年前。磁磚、規則的窗、很多有陽台
+  //   3 新大樓：住宅 2005 年後或 16 層以上。石材或塗料、大片深色玻璃
+  //   4 辦公、商業：零售批發、服務業、公司行號 8 層以上或 2000 年後。帶狀窗或整片玻璃帷幕
+  //   5 公共建築、學校、醫院：米白色、長條窗
+  //   6 店面、廠房、倉庫：3 層以下的非住宅。窗少
+  // 一樓常是騎樓店面（兼商業的住宅、零售），畫成一條暗的帶子。每棟的類型、顏色、窗的寬度都用編號算的亂數挑，
+  // 同一棟每次看都一樣。look 的位元：0–2 類型、3 陽台、4 一樓店面、5 鐵窗、6–7 屋頂顏色
+  const LOOK_WALLS = {
+    1: [[217, 201, 173], [200, 179, 147], [168, 102, 90], [196, 150, 134], [182, 180, 170], [166, 178, 184], [221, 211, 191], [185, 165, 140], [156, 138, 120]],
+    2: [[207, 198, 182], [185, 171, 151], [169, 154, 134], [214, 209, 198], [158, 148, 136], [194, 180, 156], [143, 127, 114]],
+    3: [[217, 214, 207], [201, 196, 186], [184, 178, 166], [226, 223, 216], [142, 142, 140], [169, 165, 156]],
+    4: [[183, 188, 192], [167, 174, 179], [200, 201, 198], [142, 150, 155], [208, 208, 203]],
+    5: [[230, 224, 210], [221, 213, 196], [216, 216, 208], [233, 228, 214], [201, 185, 159]],
+    6: [[207, 200, 187], [189, 179, 162], [167, 167, 162], [215, 210, 199], [180, 164, 141]]
+  };
+  const ROOF_COLORS = [[150, 150, 146], [182, 182, 178], [118, 146, 120], [150, 104, 92]];
+  function buildingLook(p, code, baseM, i) {
+    const r1 = jitter(i * 3 + 101), r2 = jitter(i * 7 + 23), r3 = jitter(i * 11 + 57), r4 = jitter(i * 13 + 5);
+    const floors = p.f || Math.max(1, Math.round((p.h - baseM) / 3.2)), year = p.y || 0;
+    const res = /^0502|^0503/.test(code), shop = /^050101|^050102|^050302/.test(code);
+    const pub = /^06|^0701/.test(code), office = /^050101|^050102/.test(code);
+    let type;
+    if (baseM > 2) type = 0;                                              // 空橋、遮雨棚：不畫窗
+    else if (pub) type = 5;
+    else if (office && (floors >= 8 || year >= 2000)) type = 4;
+    else if (!res && floors <= 3) type = 6;
+    else if (floors >= 16 || year >= 2005) type = res || !code ? 3 : 4;
+    else if (floors >= 7) type = 2;
+    else if (floors <= 6 && (year === 0 || year < 1990)) type = 1;
+    else type = 2;
+    let look = type;
+    if ((type === 1 && r2 < 0.55) || (type === 2 && r2 < 0.7) || (type === 3 && r2 < 0.5)) look |= 8;     // 陽台
+    if (shop && floors >= 2 && type !== 4 && type !== 5) look |= 16;                                       // 一樓店面
+    if ((type === 1 && r3 < 0.8) || (type === 2 && year > 0 && year < 1995 && r3 < 0.5)) look |= 32;    // 鐵窗
+    const rv = r4 < 0.62 ? 0 : r4 < 0.85 ? 1 : r4 < 0.96 ? 2 : 3;
+    look |= rv << 6;
+    const pal = LOOK_WALLS[type] || [SCENE.wall];
+    const base = pal[Math.floor(r1 * pal.length) % pal.length];
+    const v = 0.95 + 0.1 * jitter(i + 1);
+    return { look, seed: Math.floor(jitter(i * 5 + 3) * 255), wall: base.map(c => Math.min(255, Math.round(c * v))) };
+  }
+  // 頂樓加蓋（鐵皮屋）和水塔：老公寓、電梯大樓的平屋頂上，順著最長那條邊放一個長方形的鐵皮屋，旁邊或上面放水塔。
+  // 長方形的四個角都要在屋頂裡面，不然縮小再試一次，還是不行就不放。只放在 45 m 以下的樓頂（高樓的屋突不是這個樣子）
+  function inRing(ring, x, y) {
+    let c = false;
+    for (let a = 0, b = ring.length - 1; a < ring.length; b = a++) {
+      const [xa, ya] = ring[a], [xb, yb] = ring[b];
+      if ((ya > y) !== (yb > y) && x < (xb - xa) * (y - ya) / (yb - ya) + xa) c = !c;
+    }
+    return c;
+  }
+  const SHED_COLORS = [[86, 122, 166], [208, 210, 208], [156, 160, 158], [176, 116, 84], [112, 146, 176]];
+  function rooftop(p, ring, z0, look, i, roofs) {
+    const type = look & 7;
+    if ((type !== 1 && type !== 2) || p.h > 45 || ring.length < 4) return;
+    const r = jitter(i * 17 + 9);
+    if (r > (type === 1 ? 0.7 : 0.35)) return;
+    const n = ring.length - 1;
+    const xy = ring.slice(0, n).map(c => [(c[0] - ring[0][0]) * M_LON, (c[1] - ring[0][1]) * M_LAT]);
+    let best = 0, ux = 1, uy = 0;
+    for (let k = 0; k < n; k++) {
+      const a = xy[k], b = xy[(k + 1) % n], l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (l > best) { best = l; ux = (b[0] - a[0]) / l; uy = (b[1] - a[1]) / l; }
+    }
+    const cx = xy.reduce((s, q) => s + q[0], 0) / n, cy = xy.reduce((s, q) => s + q[1], 0) / n;
+    let lo = [Infinity, Infinity], hi = [-Infinity, -Infinity];
+    for (const [x, y] of xy) {
+      const a = (x - cx) * ux + (y - cy) * uy, b = -(x - cx) * uy + (y - cy) * ux;
+      lo = [Math.min(lo[0], a), Math.min(lo[1], b)]; hi = [Math.max(hi[0], a), Math.max(hi[1], b)];
+    }
+    const toLL = (a, b) => [ring[0][0] + (cx + a * ux - b * uy) / M_LON, ring[0][1] + (cy + a * uy + b * ux) / M_LAT];
+    const local = xy.map(([x, y]) => [x, y]);
+    for (const s of [0.55, 0.38]) {
+      const ha = Math.min(9, (hi[0] - lo[0]) * s / 2), hb = Math.min(6, (hi[1] - lo[1]) * s / 2);
+      if (ha < 1.6 || hb < 1.4) return;
+      const ma = (lo[0] + hi[0]) / 2, mb = (lo[1] + hi[1]) / 2;
+      const corners = [[ma - ha, mb - hb], [ma + ha, mb - hb], [ma + ha, mb + hb], [ma - ha, mb + hb]];
+      const ok = corners.every(([a, b]) => inRing(local, cx + a * ux - b * uy, cy + a * uy + b * ux));
+      if (!ok) continue;
+      const shedH = 2.4 + 0.6 * jitter(i * 19 + 1), col = SHED_COLORS[Math.floor(jitter(i * 23 + 7) * SHED_COLORS.length)];
+      const poly = corners.concat([corners[0]]).map(([a, b]) => [...toLL(a, b), z0]);
+      roofs.push({ poly, e: shedH, c: col, code: [26, 7, 0, 255] });
+      // 水塔：六角柱，直徑約 1.4 m、高 1.6 m，放在鐵皮屋頂上靠一端；三成的樓多一個
+      const tanks = jitter(i * 29 + 3) < 0.3 ? 2 : 1;
+      for (let t = 0; t < tanks; t++) {
+        const ta = ma + (t ? -1 : 1) * Math.max(0, ha - 1.2), tb = mb + (jitter(i * 31 + t) - 0.5) * hb;
+        const steel = jitter(i * 37 + t) < 0.7;
+        const hexa = [];
+        for (let k = 0; k <= 6; k++) {
+          const ang = k * Math.PI / 3;
+          hexa.push([...toLL(ta + 0.7 * Math.cos(ang), tb + 0.7 * Math.sin(ang)), z0 + shedH]);
+        }
+        roofs.push({ poly: hexa, e: 1.6, c: steel ? [206, 210, 212] : [70, 112, 164], code: [0, 0, 0, 255] });
+      }
+      return;
+    }
+  }
+
+  // 地標：依公開資料和照片做的網格（landmarks.py），取代 OSM 裡對應的建物部件。
+  // 開網頁時只載 data/landmarks/index.json（名字、位置、被取代的編號、出處），網格等鏡頭靠近才載：
+  // 跟建物圖磚同一個標準，離「相機正下方到畫面中心」那條線 NEAR_M 以內。
+  // 網格檔是二進位轉成的 base64（meshkit.encode_parts）：座標 uint16（offset + q × scale）、法向量 int8、
+  // 顏色 uint8、uv float32。沒有法向量的那份是平面，deck.gl 會自己算每個面的法向量。
+  function prepLandmarks(index) {
+    const list = Array.isArray(index) ? index : index.landmarks || [];
+    for (const [name, F] of Object.entries(index.facades || {})) {
+      LANDMARK_TEXTURES['facade:' + name] = markGlass(facadeTexture(F), [F.glass, F.glass2, F.strip].filter(Boolean));
+    }
+    landmarks = list.map(L => ({ ...L, parts: null, loading: false,
+      p: [L.lon, L.lat, L.ground_m], s: [1, 1, 1], yaw: 0, gcol: groundColor(L.ground_m) }));
+    // 照片貼圖的出處（作者、授權）列在資料來源裡：CC BY 類的授權要讓看的人找得到署名，不能只在點地標之後才看得到
+    const credits = list.filter(L => L.textures && L.textures.length).map(L => {
+      const items = (L.sources || []).filter(x => x.item.startsWith('牆面照片貼圖'));
+      const link = x => {
+        const a = document.createElement('a');
+        a.href = x.url; a.target = '_blank'; a.rel = 'noopener';
+        a.textContent = x.item.replace(/^牆面照片貼圖：/, '').replace(/；貼圖集是改作.*$/, '');
+        return a.outerHTML;
+      };
+      return L.name + '：' + items.map(link).join('、');
+    });
+    // 照片取樣材質（fx=tex）的照片出處：材質是照片的改作，一樣要讓看的人找得到署名
+    const mcredits = FX.has('tex') ? list.filter(L => L.materials && L.materials.length).map(L => {
+      const items = (L.sources || []).filter(x => x.item.startsWith('材質照片'));
+      const link = x => {
+        const a = document.createElement('a');
+        a.href = x.url; a.target = '_blank'; a.rel = 'noopener';
+        a.textContent = x.item.replace(/^材質照片：/, '').replace(/；材質貼圖是改作.*$/, '');
+        return a.outerHTML;
+      };
+      return L.name + '：' + items.map(link).join('、');
+    }) : [];
+    if (mcredits.length) {
+      const li = document.getElementById('material-credits');
+      li.innerHTML = '材質（屋瓦、牆、石材從這些照片切一小塊，做成可重複的貼圖；是照片的改作，以 CC BY-SA 4.0 釋出）：' + mcredits.join('；') + '。';
+      li.hidden = false;
+    }
+    if (credits.length) {
+      const li = document.getElementById('photo-credits');
+      li.innerHTML = '照片貼圖（把照片投影到模型的牆面上；貼圖集是這些照片的改作，以 CC BY-SA 4.0 釋出）：' + credits.join('；') + '。';
+      li.hidden = false;
+    }
+  }
+  function b64bytes(s) {
+    const b = atob(s), u = new Uint8Array(b.length);
+    for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
+    return u;
+  }
+  function decodeLandmarkPart(P) {
+    const q = new Uint16Array(b64bytes(P.pos).buffer), pos = new Float32Array(q.length);
+    for (let i = 0; i < q.length; i += 3) for (let k = 0; k < 3; k++) pos[i + k] = P.offset[k] + q[i + k] * P.scale[k];
+    const attributes = { POSITION: { size: 3, value: pos } };
+    if (P.nor) {
+      const n8 = new Int8Array(b64bytes(P.nor).buffer), nor = new Float32Array(n8.length);
+      for (let i = 0; i < n8.length; i += 3) {
+        const l = Math.hypot(n8[i], n8[i + 1], n8[i + 2]) || 1;
+        nor[i] = n8[i] / l; nor[i + 1] = n8[i + 1] / l; nor[i + 2] = n8[i + 2] / l;
+      }
+      attributes.NORMAL = { size: 3, value: nor };
+    }
+    const ib = b64bytes(P.idx);
+    const indices = { size: 1, value: P.idx32 ? new Uint32Array(ib.buffer) : new Uint16Array(ib.buffer) };
+    const plain = { attributes, indices };
+    const real = { attributes: { ...attributes }, indices };
+    if (P.col) {
+      const c = b64bytes(P.col), f = new Float32Array(c.length);
+      for (let i = 0; i < c.length; i++) f[i] = c[i] / 255;
+      real.attributes.COLOR_0 = { size: 3, value: f };
+    }
+    if (P.uv) real.attributes.TEXCOORD_0 = { size: 2, value: new Float32Array(b64bytes(P.uv).buffer) };
+    if (P.ao && FX.has('ao')) {                       // 貼圖那份的頂點遮蔽（meshkit.bake_ao），灰階當頂點顏色
+      const a = b64bytes(P.ao), f = new Float32Array(a.length * 3);
+      for (let i = 0; i < a.length; i++) f[3 * i] = f[3 * i + 1] = f[3 * i + 2] = a[i] / 255;
+      real.attributes.COLOR_0 = { size: 3, value: f };
+    }
+    const tm = P.tm && FX.has('tex') ? b64bytes(P.tm) : null;      // lmmat：每個頂點的材質編號（0 是沒有）
+    return { plain, real, texture: P.material === 'color' ? null : P.material, tm };
+  }
+  // fx=tex：一份網格裡三個頂點的材質編號都一樣的三角形，拆成那種材質的一份（同一組頂點，只換索引），剩下的留在原本那份
+  function splitMaterials(D, materials) {
+    if (!D.tm || !materials || !materials.length) return [D];
+    const idx = D.real.indices.value, n = idx.length / 3, groups = new Map();
+    for (let t = 0; t < n; t++) {
+      const a = idx[3 * t], m = D.tm[a];
+      const k = m && D.tm[idx[3 * t + 1]] === m && D.tm[idx[3 * t + 2]] === m ? m : 0;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(idx[3 * t], idx[3 * t + 1], idx[3 * t + 2]);
+    }
+    const out = [];
+    for (const [k, list] of groups) {
+      const indices = { size: 1, value: idx instanceof Uint32Array ? Uint32Array.from(list) : Uint16Array.from(list) };
+      const mat = k ? materials[k - 1] : null;
+      out.push({ plain: { attributes: D.plain.attributes, indices }, real: { attributes: D.real.attributes, indices },
+                 texture: mat ? 'tex:' + mat.tex : D.texture, mat: mat ? { base: mat.base, size: mat.size } : null });
+    }
+    return out;
+  }
+  const texLoads = {};
+  // 材質 tex:<名稱> 的貼圖是 data/landmarks/<名稱>.jpg（同一張只載一次）
+  function loadTexMaterial(material) {
+    if (!texLoads[material]) {
+      const img = new Image();
+      img.src = 'data/landmarks/' + material.slice(4) + '.jpg';
+      texLoads[material] = img.decode().then(() => { LANDMARK_TEXTURES[material] = img; }).catch(() => {});
+    }
+    return texLoads[material];
+  }
+  function pointGap(p, a, b) {                        // 點到線段 a→b 的距離（公尺）
+    const ax = (a[0] - p[0]) * M_LON, ay = (a[1] - p[1]) * M_LAT, bx = (b[0] - p[0]) * M_LON, by = (b[1] - p[1]) * M_LAT;
+    const dx = bx - ax, dy = by - ay, t = Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (dx * dx + dy * dy || 1)));
+    return Math.hypot(ax + t * dx, ay + t * dy);
+  }
+  // 相機正下方的經緯度：相機到畫面中心的距離（像素）× sin(傾角) 換成公尺，往方位角的反方向退
+  function cameraLngLat() {
+    const c = map.getCenter(), pitch = map.getPitch() * Math.PI / 180, b = map.getBearing() * Math.PI / 180;
+    const dPx = (map.transform && map.transform.cameraToCenterDistance) || 0.5 / Math.tan(0.6435 / 2) * map.getCanvas().clientHeight;
+    const mPerPx = 40075016.686 * Math.cos(c.lat * Math.PI / 180) / (512 * 2 ** map.getZoom());
+    const d = dPx * Math.sin(pitch) * mPerPx;
+    return [c.lng - d * Math.sin(b) / M_LON, c.lat - d * Math.cos(b) / M_LAT];
+  }
+  function loadNearLandmarks() {
+    const cam = cameraLngLat(), c = map.getCenter();
+    for (const L of landmarks) {
+      if (L.parts || L.loading || pointGap([L.lon, L.lat], cam, [c.lng, c.lat]) > NEAR_M + L.radius) continue;
+      L.loading = true;
+      pendingTiles++;
+      updateStatus();
+      getJSON('data/landmarks/' + L.file)
+        .then(m => {
+          // 有照片貼圖的地標：貼圖也載好了才畫，不會先閃一下白牆
+          const parts = m.parts.map(decodeLandmarkPart).flatMap(D => splitMaterials(D, L.materials));
+          return Promise.all(parts.filter(P => P.texture && P.texture.startsWith('photo:')).map(P => loadPhotoTexture(P.texture))
+                               .concat(parts.filter(P => P.texture && P.texture.startsWith('tex:')).map(P => loadTexMaterial(P.texture))))
+            .then(() => { L.parts = parts; render(); });
+        })
+        .catch(() => { L.loading = false; })
+        .finally(() => { pendingTiles--; updateStatus(); });
+    }
+  }
+  map.on('moveend', () => { if (ready) loadNearLandmarks(); });
+  window.__landmarks = () => landmarks.map(L => ({ name: L.name, loaded: Boolean(L.parts) }));
+
+  // 一塊圖磚的樹 → T.treeGroups（依樹形分組）、T.trunks
+  function prepTrees(tj, T) {
+    tj.t.forEach((t, i) => {
+      const [lon, lat, h, crown, g, si, dbh] = t;
+      const name = tj.sp[si] || '';
+      const [shape, base] = speciesStyle(name);
+      let rc = crown / 2, rv, cz;
+      if (shape === 'palm') { rc = Math.min(5, Math.max(2.5, crown / 2)); rv = 1.6; cz = h - 1.0; }
+      else if (shape === 'wide') { rc *= 1.1; rv = Math.max(1.2, 0.24 * h); cz = h - rv; }
+      else if (shape === 'tier') { rv = Math.max(1.5, 0.42 * h); cz = h - rv; }
+      else if (shape === 'upright') { rc *= 0.75; rv = Math.max(1.5, 0.45 * h); cz = h - rv; }
+      else { rv = Math.max(1.2, 0.33 * h); cz = h - rv; }
+      const yaw = jitter(i + 11) * 360;
+      const shade = 0.88 + 0.2 * jitter(i + 7);
+      const gcol = groundColor(g);
+      // 顏色要看月份，畫的時候才算（treeColor），每棵樹只記樹種、基本色和深淺，省記憶體
+      (T.treeGroups[shape] = T.treeGroups[shape] || []).push({ p: [lon, lat, g + cz], s: [rc, rc, rv], yaw, gcol, name, base, shade });
+      const tr = Math.max(0.1, (dbh || 20) / 200);
+      const top = shape === 'palm' ? h - 0.8 : cz;
+      T.trunks.push({ p: [lon, lat, g], s: [tr, tr, Math.max(0.5, top)], yaw, gcol, c: shape === 'palm' ? SCENE.palmTrunk : SCENE.trunk });
+    });
+  }
+
+  // 高架橋：每一條是接好的路線，橋面板沿路線做成連續的帶子，轉彎處用斜接，不會裂開。
+  // 每個點有橋面頂的海拔、地面海拔和寬度；橋面板厚 1.6 m（捷運 1.8 m），每 4 個點（約 32 m）一根橋墩。
+  // 跨圖磚的路線在交界兩邊各多帶一點（tile_prep.py），兩塊接得起來。橋面板和橋墩都放進 out
+  // 高架橋的尺寸（估計值，照臺北常見的高架道路和捷運高架）：護欄高、厚，橋墩間距、柱子、帽梁，橋面邊線
+  // 車道線 4 m 一段、間隔 6 m（照常見的快速道路），雙向的路中間畫雙黃線，也都是估計
+  const EST_BR = { rail: 1.0, railW: 0.35, pier: 30, col: 1.8, cap: 1.2, capL: 1.8, edge: 0.15, edgeIn: 0.6, dash: 4, gap: 6 };
+
+  function prepBridges(list, out, marks) {
+    // 三條以上的路線在同一點相接（匝道併入、分岔）：那一點前後 25 m 不畫護欄，匯流的地方才不會被一道牆擋住
+    const key = q => q[0].toFixed(6) + ',' + q[1].toFixed(6);
+    const ends = new Map();
+    for (const b of list) for (const q of [b.p[0], b.p[b.p.length - 1]]) ends.set(key(q), (ends.get(key(q)) || 0) + 1);
+    const PIER_C = [192, 190, 184], RAIL_C = [222, 220, 214], DECK_C = [104, 107, 110], MARK_C = [236, 236, 230], YELLOW_C = [226, 186, 64];
+    for (const b of list) {
+      const P = b.p, n = P.length, thick = b.k === 'rail' ? 1.8 : 1.6;
+      const xy = P.map(q => [(q[0] - P[0][0]) * M_LON, (q[1] - P[0][1]) * M_LAT]);
+      // 每個點往左的單位法向量和斜接的放大倍數：前後兩段方向的平均，斜接最多放大 2 倍
+      const nrm = [], mit = [], tan = [];
+      for (let i = 0; i < n; i++) {
+        const q = xy[i], a = xy[Math.max(0, i - 1)], c = xy[Math.min(n - 1, i + 1)];
+        let d1 = [q[0] - a[0], q[1] - a[1]], d2 = [c[0] - q[0], c[1] - q[1]];
+        const l1 = Math.hypot(...d1), l2 = Math.hypot(...d2);
+        d1 = l1 ? [d1[0] / l1, d1[1] / l1] : null;
+        d2 = l2 ? [d2[0] / l2, d2[1] / l2] : null;
+        const t0 = d1 && d2 ? [d1[0] + d2[0], d1[1] + d2[1]] : (d1 || d2 || [1, 0]);
+        const lt = Math.hypot(...t0) || 1, tt = [t0[0] / lt, t0[1] / lt];
+        const ref = d2 || d1 || tt;
+        tan.push(tt); nrm.push([-tt[1], tt[0]]); mit.push(1 / Math.max(0.5, tt[0] * ref[0] + tt[1] * ref[1]));
+      }
+      // 離中心線 d 公尺（左正右負）的點；ext 為真時頭尾往外多伸半個橋寬，跟相接的那一條重疊，交會處才不會缺一角
+      const at = (i, d, z, ext) => {
+        let ex = 0, ey = 0;
+        if (ext && (i === 0 || i === n - 1)) {
+          const j = i === 0 ? 1 : n - 2, dx = xy[i][0] - xy[j][0], dy = xy[i][1] - xy[j][1], l = Math.hypot(dx, dy) || 1;
+          ex = dx / l * P[i][4] / 2; ey = dy / l * P[i][4] / 2;
+        }
+        return [P[i][0] + (nrm[i][0] * d * mit[i] + ex) / M_LON, P[i][1] + (nrm[i][1] * d * mit[i] + ey) / M_LAT, z];
+      };
+      const quad = (i, d0, d1, z0, z1, ext) => [at(i, d0, z0, ext), at(i + 1, d0, z1, ext), at(i + 1, d1, z1, ext), at(i, d1, z0, ext), at(i, d0, z0, ext)];
+      // 每一點沿線的距離，和離最近的匯流點多遠
+      const s = [0];
+      for (let i = 1; i < n; i++) s.push(s[i - 1] + Math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1]));
+      const j0 = (ends.get(key(P[0])) || 0) >= 3, j1 = (ends.get(key(P[n - 1])) || 0) >= 3;
+      const nearJoin = i => (j0 && s[i] < 25) || (j1 && s[n - 1] - s[i] < 25);
+      for (let i = 0; i + 1 < n; i++) {
+        if (P[i][2] - P[i][3] < 0.2 && P[i + 1][2] - P[i + 1][3] < 0.2) continue;   // 貼地的部分：路面已經畫了
+        const hw = (P[i][4] + P[i + 1][4]) / 4, gc = groundColor((P[i][3] + P[i + 1][3]) / 2);
+        out.push({ poly: quad(i, hw, -hw, P[i][2] - thick, P[i + 1][2] - thick, true), e: thick, c: SCENE.bridge, gcol: gc });
+        if (!nearJoin(i) && !nearJoin(i + 1)) {
+          for (const side of [1, -1]) {                                             // 兩側的混凝土護欄
+            out.push({ poly: quad(i, side * hw, side * (hw - EST_BR.railW), P[i][2], P[i + 1][2], false), e: EST_BR.rail, c: RAIL_C, gcol: gc });
+          }
+        }
+        if (b.k !== 'rail' && marks) {                                              // 橋面鋪柏油、畫標線
+          const hr = hw - EST_BR.railW, za = P[i][2] + 0.12, zb = P[i + 1][2] + 0.12;
+          marks.push({ poly: quad(i, hr, -hr, P[i][2] + 0.06, P[i + 1][2] + 0.06, false), c: DECK_C });
+          // OSM 有車道數時，橋寬是 車道數 × 3.5 m + 1 m（proto_prep.bridge_width），邊線畫在最外側車道的邊上
+          const ln = P[i][5] || 0, ow = P[i][6] || 0;
+          const half = ln >= 1 ? Math.min(hr - 0.25, ln * 1.75) : hr - EST_BR.edgeIn;
+          for (const side of [1, -1]) {
+            const d0 = side * half, d1 = d0 - side * EST_BR.edge;
+            marks.push({ poly: quad(i, d0, d1, za, zb, false), c: MARK_C });
+          }
+          if (ln >= 2) {                                                             // 車道線：沒標車道數的不畫
+            const lane = 2 * half / ln;
+            for (let k = 1; k < ln; k++) {
+              const d = -half + k * lane;
+              if (!ow && 2 * k === ln) {                                             // 雙向的路：中間雙黃線
+                for (const o of [0.12, -0.24]) marks.push({ poly: quad(i, d + o, d + o + 0.12, za, zb, false), c: YELLOW_C });
+                continue;
+              }
+              const per = EST_BR.dash + EST_BR.gap;
+              for (let a = Math.floor(s[i] / per) * per; a < s[i + 1]; a += per) {
+                const f0 = Math.max(0, (a - s[i]) / ((s[i + 1] - s[i]) || 1)), f1 = Math.min(1, (a + EST_BR.dash - s[i]) / ((s[i + 1] - s[i]) || 1));
+                if (f1 <= f0) continue;
+                const A0 = at(i, d + 0.06, za, false), A1 = at(i + 1, d + 0.06, zb, false), B0 = at(i, d - 0.06, za, false), B1 = at(i + 1, d - 0.06, zb, false);
+                const mix = (U, V, f) => [U[0] + (V[0] - U[0]) * f, U[1] + (V[1] - U[1]) * f, U[2] + (V[2] - U[2]) * f];
+                marks.push({ poly: [mix(A0, A1, f0), mix(A0, A1, f1), mix(B0, B1, f1), mix(B0, B1, f0), mix(A0, A1, f0)], c: MARK_C });
+              }
+            }
+          }
+        }
+      }
+      // 橋墩：沿線每 EST_BR.pier 公尺一座，橋下淨高 4 m 以上才畫。柱子（寬的橋兩根）加一根橫跨橋寬的帽梁
+      for (let d = EST_BR.pier / 2; d < s[n - 1]; d += EST_BR.pier) {
+        let i = 0;
+        while (i + 2 < n && s[i + 1] < d) i++;
+        const f = Math.min(1, Math.max(0, (d - s[i]) / ((s[i + 1] - s[i]) || 1)));
+        const lerp = k => P[i][k] + (P[i + 1][k] - P[i][k]) * f;
+        const lon = lerp(0), lat = lerp(1), zt = lerp(2), g = lerp(3), w = lerp(4), zb = zt - thick;
+        if (zb - g < 4) continue;
+        const tt = tan[i], nn = nrm[i];
+        const box = (along, across, cx) => {                                        // 以橋墩中心為準，沿線 along、橫向 across 的長方形
+          const pt = (u, v) => [lon + (tt[0] * u + nn[0] * (v + cx)) / M_LON, lat + (tt[1] * u + nn[1] * (v + cx)) / M_LAT];
+          return [pt(-along / 2, -across / 2), pt(along / 2, -across / 2), pt(along / 2, across / 2), pt(-along / 2, across / 2), pt(-along / 2, -across / 2)];
+        };
+        const gc = groundColor(g);
+        for (const cx of (w > 16 ? [-w / 4, w / 4] : [0])) {
+          out.push({ poly: box(EST_BR.col, EST_BR.col, cx).map(q => [q[0], q[1], g]), e: zb - EST_BR.cap - g, c: PIER_C, gcol: gc });
+        }
+        out.push({ poly: box(EST_BR.capL, Math.max(EST_BR.col, w - 1.2), 0).map(q => [q[0], q[1], zb - EST_BR.cap]), e: EST_BR.cap, c: PIER_C, gcol: gc });
+      }
+    }
+  }
+
+  // 接觸陰影：只畫貼地的量體（底部離地的遮雨棚、空橋不畫），路徑放在地面上 0.2 m
+  const haloPaths = list => list.filter(b => b.base < 0.5).map(b => {
+    const ring = b.poly[0];
+    const path = ring.slice(0, ring.length - 1).map(c => [c[0], c[1], c[2] + 0.2]);
+    return { path, w: 2 * Math.min(5, Math.max(1.5, b.top * 0.12)) };
+  });
+  // 一塊圖磚：下載、整理成畫圖用的資料。清單裡沒有的（沒有建物和樹，只有高架的那些）不下載。
+  // 畫面傾斜很大時，deck.gl 會用比較粗的層級去拿遠處的圖磚，資料只有 z14，那些也不下載（遠處本來就在霧裡）。
+  // pendingTiles：正在下載的塊數，檢查用的程式等它歸零再截圖
+  let pendingTiles = 0, prepMs = 0;
+  window.__pendingTiles = () => pendingTiles;
+  window.__prepMs = () => Math.round(prepMs);       // 圖磚下載後整理資料花的時間（檢查效能用）
+  let extraTrees = {};
+  async function loadTile(tile) {
+    const { x, y, z } = tile.index;
+    if (z !== 14 || !tileSet.has(x + '/' + y)) return null;
+    pendingTiles++;
+    updateStatus();
+    try {
+      const tj = await getJSON('data/tiles/' + z + '/' + x + '/' + y + '.json', tile.signal);
+      const T = { buildings: [], treeGroups: {}, trunks: [], bridgeParts: [], bridgeMarks: [], roofParts: [] };
+      const t0 = performance.now();
+      prepBuildings(tj.b, T.buildings, T.roofParts);
+      T.halos = haloPaths(T.buildings);
+      prepTrees(tj.t, T);
+      if (extraTrees[x + '/' + y]) prepTrees(extraTrees[x + '/' + y], T);
+      prepBridges(tj.r, T.bridgeParts, T.bridgeMarks);
+      prepMs += performance.now() - t0;
+      return T;
+    } finally {
+      pendingTiles--;
+      updateStatus();
+    }
+  }
+
+  // 先載圖磚清單、地面圖磚的範圍和地標（地標檔可有可無），地圖準備好之後加上地面和地形，再開始依畫面載入圖磚
+  const optionalJSON = url => fetch(url).then(r => (r.ok ? r.json() : [])).catch(() => []);
+  const here = new URL('.', location.href).href;          // MapLibre 的圖磚網址要寫完整
+  const GROUND_ORDER = ['farm', 'forest', 'grass', 'bare', 'park', 'sports', 'rail', 'road', 'water'];  // 同 proto_prep.py 的 GROUND_CLASSES
+  let ready = false;
+  const loaded = Promise.all([getJSON('data/tiles/index.json'), getJSON('data/ground/index.json'),
+                              optionalJSON('data/landmarks/index.json'), new Promise(r => map.once('load', r)),
+                              optionalJSON('data/streets/index.json')]).then(async r => {
+    // 園區的樹（OSM 的，臺北市樹木資料沒有的那些）：依 z14 分好，載建物圖磚時一起畫
+    if (r[4] && r[4].trees) extraTrees = await optionalJSON('data/streets/trees.json');
+    return r;
+  });
+  loaded.then(([ti, gi, lm, , si]) => {
+    tileSet = new Set(ti.tiles.filter(t => t[2] + t[3] > 0).map(t => t[0] + '/' + t[1]));
+    const lmList = Array.isArray(lm) ? lm : lm.landmarks || [];
+    replaced = new Set(lmList.flatMap(L => L.replaces.osm_ids.concat(L.replaces.use_permits)));
+    prepLandmarks(lm);
+    // 地面：國土利用現況調查的多邊形切成的向量圖磚（ground_tiles.py），一個類別一層，後面的蓋在上面。
+    // artifact 不能放 .mvt 檔，build.py 把每塊存成 base64 字串的 .json；ground:// 協定下載它、解回位元組交給 MapLibre
+    maplibregl.addProtocol('ground', async (params, abort) => {
+      const b64 = await getJSON(params.url.replace('ground://', here + 'data/ground/') + '.json', abort.signal);
+      const bin = atob(b64), bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return { data: bytes.buffer };
+    });
+    map.addSource('ground', { type: 'vector', tiles: ['ground://{z}/{x}/{y}'],
+                              minzoom: gi.minzoom, maxzoom: gi.maxzoom, bounds: gi.bounds });
+    for (const name of GROUND_ORDER) {
+      map.addLayer({ id: 'g-' + name, type: 'fill', source: 'ground', 'source-layer': 'ground',
+                     filter: ['==', ['get', 'c'], name], paint: { 'fill-color': SCENE[name] } });
+    }
+    if (TERRAIN) {
+      // 內政部 20 m 數值地形模型做的地形圖磚（512 px，z7–12）：立體地形一份、地形陰影一份（MapLibre 建議分開）
+      // bounds：地形資料（臺北市、新北市）的範圍，範圍外不去要圖磚
+      const dem = { type: 'raster-dem', tiles: [here + 'data/terrain/{z}/{x}/{y}.png'], tileSize: 512, encoding: 'mapbox',
+                    minzoom: 7, maxzoom: 12, bounds: [121.2566, 24.6454, 122.0096, 25.3012] };
+      map.addSource('dem', dem);
+      map.addSource('dem-hs', dem);
+      map.addLayer({ id: 'hillshade', type: 'hillshade', source: 'dem-hs', paint: {
+        'hillshade-exaggeration': 0.45, 'hillshade-illumination-anchor': 'map',
+        'hillshade-shadow-color': '#8f9893', 'hillshade-highlight-color': '#ffffff', 'hillshade-accent-color': '#b9c1bb' } });
+      map.setTerrain({ source: 'dem', exaggeration: 1 });
+    }
+    // 斑馬線：OSM 的穿越道，畫成寬 4 m 的虛線，虛線就是一條條白色的線；街區以下的比例尺看不出來，不畫
+    map.addLayer({ id: 'crossings', type: 'line', source: 'ground', 'source-layer': 'crossings', minzoom: 15,
+                   paint: { 'line-color': SCENE.crossing, 'line-width': roadWidth(4), 'line-dasharray': [0.12, 0.14] },
+                   layout: { 'line-cap': 'butt' } });
+    if (si && si.bundles) addStreets(si);
+    map.addSource('tint', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'Polygon',
+      coordinates: [[[121.2, 24.6], [122.05, 24.6], [122.05, 25.35], [121.2, 25.35], [121.2, 24.6]]] } } });
+    map.addLayer({ id: 'tint', type: 'fill', source: 'tint', paint: { 'fill-color': '#ff9a52', 'fill-opacity': 0,
+                   'fill-color-transition': { duration: 0 }, 'fill-opacity-transition': { duration: 0 } } });
+    ready = true;
+    updateStatus();
+    render();
+    loadNearLandmarks();
+    showInfo(null);
+    window.__ready = true;
+  }).catch(err => {
+    console.error(err);
+    ready = false;                                    // 之後的圖磚載入不要把錯誤訊息蓋掉
+    document.getElementById('status').textContent = '資料載入失敗（' + err.message + '），請重新整理頁面。';
+  });
+
+  // ---------- 控制項 ----------
+  // 標題旁的狀態：縮到 12.5 級以下建物和樹不載（見 layers()），提示放大；正在下載圖磚時顯示載入中
+  function updateStatus() {
+    if (!ready) return;
+    document.getElementById('status').textContent =
+      map.getZoom() < 12.5 ? '放大一點才會出現建物和樹' : pendingTiles > 0 ? '建物載入中…' : '';
+  }
+  map.on('zoomend', updateStatus);
+  map.on('zoomend', () => { if (ready && FURN.meshes && FURN.shown !== (map.getZoom() >= FURN_MIN_ZOOM)) render(); });
+
+  // 檢查用：網址最後加 #debug，右下角每秒更新畫面幀數、圖磚和記憶體（在真的顯示卡、手機上量效能用）。
+  // 加 #bench 另外跑一條固定的鏡頭路線約 20 秒，量每一格花多久，不同版本、不同裝置拿同一條路線比
+  const BENCH = location.hash === '#bench';
+  let benchResult = '';
+  if (location.hash === '#debug' || BENCH) {
+    const box = el('pre', '', 'debug');
+    document.body.append(box);
+    let frames = 0, last = performance.now();
+    map.on('render', () => frames++);
+    setInterval(() => {
+      const now = performance.now(), fps = frames * 1000 / (now - last);
+      frames = 0; last = now;
+      const res = performance.getEntriesByType('resource').filter(r => r.name.includes('/data/'));
+      const mb = k => (res.reduce((a, r) => a + (r[k] || 0), 0) / 1e6).toFixed(1);
+      const d = overlay._deck, m = d && d.metrics;
+      box.textContent = ['每秒畫面 ' + fps.toFixed(0), '下載中的圖磚 ' + pendingTiles,
+        '資料檔 ' + res.length + ' 個，傳輸 ' + mb('transferSize') + ' MB，解開 ' + mb('decodedBodySize') + ' MB',
+        performance.memory ? 'JS 記憶體 ' + (performance.memory.usedJSHeapSize / 1e6).toFixed(0) + ' MB' : 'JS 記憶體（這個瀏覽器不提供）',
+        m ? 'deck.gl GPU 記憶體 ' + (m.gpuMemory / 1e6).toFixed(0) + ' MB' : '',
+        '畫面解析度倍數 ' + map.getPixelRatio().toFixed(2), benchResult].filter(Boolean).join('\n');
+    }, 1000);
+  }
+  if (BENCH) {
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const ease = o => new Promise(r => { map.once('moveend', r); map.easeTo(o); });
+    (async () => {
+      while (!ready) await sleep(500);
+      benchResult = '測速：等第一個畫面的圖磚載完';
+      for (let calm = 0; calm < 3; calm = pendingTiles === 0 ? calm + 1 : 0) await sleep(1000);
+      benchResult = '測速中…（約 20 秒）';
+      // 同時模擬滑鼠在畫面上繞圈移動（筆電上看地圖時滑鼠幾乎一直在動），量滑鼠移動帶來的負擔
+      const times = [], cv = map.getCanvas();
+      let prev = performance.now(), running = true;
+      const tick = t => {
+        times.push(t - prev); prev = t;
+        const r = cv.getBoundingClientRect(), a = t / 400;
+        cv.dispatchEvent(new MouseEvent('mousemove', { bubbles: true,
+          clientX: r.left + r.width * (0.5 + 0.25 * Math.cos(a)), clientY: r.top + r.height * (0.55 + 0.2 * Math.sin(a)) }));
+        if (running) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+      await ease({ bearing: map.getBearing() + 90, duration: 8000, easing: t => t });          // 繞 101 轉 90°
+      await ease({ center: [121.5355, 25.0300], zoom: 16.0, pitch: 65, duration: 6000 });       // 移到大安森林公園
+      await ease({ zoom: 14.6, pitch: 70, bearing: map.getBearing() - 40, duration: 6000 });     // 拉遠
+      running = false;
+      const t = times.slice(1).sort((a, b) => a - b), q = f => t[Math.min(t.length - 1, Math.floor(t.length * f))];
+      const avg = t.reduce((a, b) => a + b, 0) / t.length;
+      benchResult = '測速結果：平均每秒 ' + (1000 / avg).toFixed(0) + ' 格\n一半的畫面在 ' + q(0.5).toFixed(0) +
+        ' ms 內，95% 在 ' + q(0.95).toFixed(0) + ' ms 內\n超過 50 ms 的 ' + t.filter(x => x > 50).length + ' 格（共 ' + t.length + ' 格）';
+    })();
+  }
+  // 面板可以整塊滑到畫面外，只留把手。手機（寬 520 px 以下）預設收起、桌機預設展開；
+  // 按過就記在這台瀏覽器，存不了就每次用預設。收起時裡面的控制項設成 inert，鍵盤 Tab 不會跳進看不到的地方
+  function setPanel(open, remember) {
+    const btn = document.getElementById('fold'), label = open ? '收起面板' : '展開面板';
+    document.getElementById('panel').classList.toggle('closed', !open);
+    document.getElementById('panel-inner').inert = !open;
+    btn.setAttribute('aria-expanded', String(open));
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+    if (remember) { try { localStorage.setItem('panel-open', open ? '1' : '0'); } catch (e) { /* 存不了就算了 */ } }
+  }
+  let savedPanel = null;
+  try { savedPanel = localStorage.getItem('panel-open'); } catch (e) { /* 讀不到就用預設 */ }
+  setPanel(savedPanel === null ? !matchMedia('(max-width: 520px)').matches : savedPanel === '1', false);
+  document.getElementById('fold').addEventListener('click', () => setPanel(document.getElementById('panel').classList.contains('closed'), true));
+  document.querySelectorAll('[data-day]').forEach(b => b.addEventListener('click', () => {
+    day = b.dataset.day;
+    document.querySelectorAll('[data-day]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    render();
+  }));
+  const timeInput = document.getElementById('time');
+  timeInput.addEventListener('input', () => { minutes = Number(timeInput.value); render(); });
+  const setMode = m => {
+    mode = m;
+    document.getElementById('mode-real').setAttribute('aria-pressed', String(m === 'real'));
+    document.getElementById('mode-height').setAttribute('aria-pressed', String(m === 'height'));
+    render();
+  };
+  document.getElementById('mode-real').addEventListener('click', () => setMode('real'));
+  document.getElementById('mode-height').addEventListener('click', () => setMode('height'));
+  document.getElementById('floors').addEventListener('change', e => { showFloors = e.target.checked; render(); });
+  document.getElementById('trees').addEventListener('change', e => { showTrees = e.target.checked; render(); });
+  document.getElementById('shadow').addEventListener('change', e => { showShadow = e.target.checked; render(); });
+  updateLights();
+})();
+</script>

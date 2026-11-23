@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D 臺北成果</title>
+<style>
+  /* 一欄閱讀版面，圖片比內文寬一點；白底、黑灰字，主題色只用在連結、按鈕和長條 */
+  :root {
+    --bg: #ffffff;
+    --fg: #1f2328;
+    --muted: #5d646b;
+    --line: #dde1e5;
+    --accent: #2b6a8a;
+    --accent-soft: #dbe9f0;
+    --font: Arial, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141719; --fg: #e6e9ec; --muted: #a2aab1; --line: #2e3439;
+      --accent: #7fb6d3; --accent-soft: #1f3440; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141719; --fg: #e6e9ec; --muted: #a2aab1; --line: #2e3439;
+    --accent: #7fb6d3; --accent-soft: #1f3440; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font);
+         font-size: 17px; line-height: 1.75; }
+  main { max-width: 1040px; margin: 0 auto;
+         padding: 56px max(20px, env(safe-area-inset-right)) 80px max(20px, env(safe-area-inset-left)); }
+  .text { max-width: 680px; }
+  h1 { font-size: 34px; line-height: 1.3; font-weight: 700; margin: 0 0 16px; text-wrap: balance; }
+  h2 { font-size: 23px; line-height: 1.4; font-weight: 700; margin: 72px 0 14px; text-wrap: balance; }
+  p { margin: 0 0 14px; }
+  .lede { font-size: 19px; }
+  .meta { color: var(--muted); font-size: 15px; }
+  a { color: var(--accent); }
+  .open { display: inline-block; margin-top: 10px; padding: 10px 18px; border-radius: 6px;
+          background: var(--accent); color: var(--bg); text-decoration: none; font-weight: 700; }
+  .open:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  figure { margin: 0; }
+  figure img { display: block; width: 100%; max-width: 100%; height: auto; border-radius: 4px; }
+  figcaption { color: var(--muted); font-size: 14px; line-height: 1.6; margin-top: 8px; }
+  .hero { margin-top: 40px; }
+  .shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px 24px; margin-top: 24px; }
+  .scroll { overflow-x: auto; margin: 18px 0 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; line-height: 1.6; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 12px 9px 0; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 400; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .items td:first-child { white-space: nowrap; font-weight: 700; padding-right: 20px; }
+  .bar { width: 46%; min-width: 120px; }
+  .bar span { display: block; height: 12px; margin-top: 7px; border-radius: 0 4px 4px 0; background: var(--accent); }
+  .note { color: var(--muted); font-size: 14px; }
+  ul { padding-left: 1.2em; margin: 0 0 14px; }
+  li { margin-bottom: 8px; }
+  footer { margin-top: 72px; color: var(--muted); font-size: 14px; }
+  @media (max-width: 640px) {
+    body { font-size: 16px; }
+    main { padding-top: 36px; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 21px; margin-top: 56px; }
+    .shots { grid-template-columns: 1fr; }
+    .items td:first-child { white-space: normal; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="text">
+    <h1>3D 臺北成果</h1>
+    <p class="lede">用開放資料做的臺北市 3D 模型。全市的建物、地形、道路和樹都在裡面，另外做了 28 個地標和 12 個園區的細部模型，用瀏覽器就能打開。</p>
+    <p class="meta">2026 年 11 月 23 日整理，對應 3D 臺北網頁 v46。</p>
+    <a class="open" href="map/">開啟 3D 臺北</a>
+  </div>
+
+  <figure class="hero">
+    <img src="img/xinyi.jpg" width="960" height="600" alt="信義計畫區的 3D 模型，台北101 和周邊高樓，左邊是網頁的操作面板">
+    <figcaption>信義計畫區，往北北西看。左邊是網頁的操作面板，可以換日期、時刻和顯示方式。</figcaption>
+  </figure>
+
+  <div class="text">
+    <h2>模型裡有什麼</h2>
+  </div>
+  <div class="scroll">
+    <table class="items">
+      <tbody>
+        <tr><td>建物</td><td>86,779 個量體。輪廓來自臺北市建管處的建照套繪圖（2001 年以後的建物）和 OpenStreetMap，高度的來源見下一節。捷運站體、地下街這類在地下的 13 筆不畫。</td></tr>
+        <tr><td>地形</td><td>內政部 20 m 數值地形模型，臺北市 64 幅、新北市 383 幅。</td></tr>
+        <tr><td>地面</td><td>國土測繪中心 2022 年國土利用現況調查的道路、公園、林地、水面。</td></tr>
+        <tr><td>道路</td><td>全市寬 8 m 以上的道路畫出車道、人行道、分隔島、行人穿越道和停止線。分隔島從通用版電子地圖抓出 7,480 塊，車道數用 OpenStreetMap 上 11,038 條道路的標籤。</td></tr>
+        <tr><td>高架道路</td><td>橋面、邊線、車道線、護欄和橋墩。約六成的高架路段在 OpenStreetMap 上有車道數；護欄和橋墩的尺寸是照臺北常見的高架道路估的。</td></tr>
+        <tr><td>樹</td><td>175,363 棵，來自臺北市行道樹和公園樹木資料。中正紀念堂園區沒有一棵棵的樹木資料，樹的位置和樹冠大小從國土測繪中心 2024 年正射影像判讀。</td></tr>
+        <tr><td>街道設施</td><td>路燈、號誌、標誌、站牌、候車亭等全市約十萬個，來自臺北市資料大平臺。</td></tr>
+        <tr><td>地標</td><td>台北101、國父紀念館、中正紀念堂、自由廣場牌樓、國家戲劇院、國家音樂廳、總統府、行政院、立法院紅樓、臺北車站、台北市政府、新光摩天大樓、國立故宮博物院、臺北大巨蛋、臺北小巨蛋、臺北田徑場、臺大總圖書館、天母棒球場、臺北市立美術館、艋舺龍山寺，以及信義計畫區和市府一帶的八棟高樓，共 28 個。依官方資料、建築圖面和照片建模，取代建物資料裡對應的方塊。</td></tr>
+        <tr><td>園區</td><td>國父紀念館、中正紀念堂、臺北車站、台北101、臺北大巨蛋、台北市政府、市民廣場、故宮、小巨蛋、行政院、立法院、龍山寺，共 12 個。鋪面、草地、水池、台階、園區裡的樹和路燈都照 OpenStreetMap 和正射影像畫。</td></tr>
+        <tr><td>光影</td><td>依時間算太陽方向，建物、樹和高架道路都有影子；部分地標貼了從照片取樣的材質。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="text">
+    <h2>建物高度從哪裡來</h2>
+    <p>每棟建物的高度照下面的優先順序取：有實價登錄總樓層數的用實價登錄，其次是 OpenStreetMap 標的層數，都沒有的才用 AI 推估。建照套繪圖的建物用使用執照上的高度。</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>高度來源</th><th class="num">棟數</th><th class="bar" aria-hidden="true"></th></tr></thead>
+      <tbody>
+        <tr><td>實價登錄的總樓層數</td><td class="num">28,051</td><td class="bar"><span style="width:100%"></span></td></tr>
+        <tr><td>AI 推估</td><td class="num">27,239</td><td class="bar"><span style="width:97.1%"></span></td></tr>
+        <tr><td>OpenStreetMap 標的層數</td><td class="num">20,405</td><td class="bar"><span style="width:72.7%"></span></td></tr>
+        <tr><td>使用執照的高度</td><td class="num">7,861</td><td class="bar"><span style="width:28.0%"></span></td></tr>
+        <tr><td>OpenStreetMap 標的高度、遮雨棚</td><td class="num">2,775</td><td class="bar"><span style="width:9.9%"></span></td></tr>
+        <tr><td>其他推算</td><td class="num">461</td><td class="bar"><span style="width:1.6%"></span></td></tr>
+        <tr><td>合計</td><td class="num">86,792</td><td class="bar"></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="text">
+    <p class="note">使用執照的高度包含 104 棟挑高還沒核對的。其他推算是依建物類型給 1 層、用全市中位數、逐層高度加總等。合計比上面的 86,779 多 13 筆，是在地下、網頁不畫的那些。</p>
+
+    <h2>AI 推估層數有多準</h2>
+    <p>沒有任何層數資料的 27,239 棟，用梯度提升樹推估地上層數。用到的資訊有輪廓本身的形狀、周邊 50 到 200 m 內建物的密度、都市計畫的分區和基準容積率、門前道路寬，以及 OpenStreetMap 的建物類型。訓練資料是有實價登錄層數或 OpenStreetMap 層數標籤的建物。</p>
+    <p>驗證用空間交叉驗證：建物依所在的 1 公里方格分成 5 組，每次拿一組當測試，測試的建物跟訓練的建物不在同一個方格裡。答案是 29,350 棟建物的實價登錄總樓層數。</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>實際層數</th><th class="num">棟數</th><th class="num">平均差</th><th class="num">差一層以內</th><th class="num">差兩層以內</th></tr></thead>
+      <tbody>
+        <tr><td>全部</td><td class="num">29,350</td><td class="num">1.41 層</td><td class="num">68.7%</td><td class="num">84.7%</td></tr>
+        <tr><td>5 層以下</td><td class="num">19,995</td><td class="num">0.90 層</td><td class="num">82.9%</td><td class="num">93.5%</td></tr>
+        <tr><td>6–10 層</td><td class="num">6,310</td><td class="num">1.78 層</td><td class="num">44.4%</td><td class="num">78.0%</td></tr>
+        <tr><td>11–20 層</td><td class="num">2,957</td><td class="num">3.65 層</td><td class="num">27.1%</td><td class="num">42.3%</td></tr>
+        <tr><td>21 層以上</td><td class="num">88</td><td class="num">13.3 層</td><td class="num">0%</td><td class="num">0%</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="text">
+    <p>每棟也給一個 80% 區間（10% 和 90% 分位數迴歸），實際涵蓋了 93.3% 的真實層數，區間寬度的中位數是 5 層。</p>
+    <p>一開始試過用建照套繪圖的建物（2001 年以後、有使照層數）訓練，拿去推 OpenStreetMap 上有層數標籤的老建物，平均高估 3.1 層，新建物普遍比老建物高。所以改成用老建物本身的標籤訓練。標籤本身也有誤差：同時有 OpenStreetMap 層數和實價登錄層數的 9,376 棟，兩者完全一樣的是 69.4%。</p>
+  </div>
+
+  <div class="text">
+    <h2>畫面</h2>
+    <p>以下是 v46 的截圖。</p>
+  </div>
+  <div class="shots">
+    <figure>
+      <img src="img/liberty.jpg" width="640" height="540" loading="lazy" alt="自由廣場牌樓、國家戲劇院、國家音樂廳和遠處中正紀念堂的 3D 模型">
+      <figcaption>自由廣場，往東南看，遠處是中正紀念堂。</figcaption>
+    </figure>
+    <figure>
+      <img src="img/pres.jpg" width="640" height="540" loading="lazy" alt="總統府正面的 3D 模型">
+      <figcaption>總統府前，往西看。</figcaption>
+    </figure>
+    <figure>
+      <img src="img/hall.jpg" width="640" height="540" loading="lazy" alt="國父紀念館的 3D 模型，後方是臺北大巨蛋">
+      <figcaption>國父紀念館，往北看，後方是臺北大巨蛋。</figcaption>
+    </figure>
+    <figure>
+      <img src="img/npm.jpg" width="640" height="540" loading="lazy" alt="國立故宮博物院正館和前面園區的 3D 模型">
+      <figcaption>故宮，往北北西看。</figcaption>
+    </figure>
+    <figure>
+      <img src="img/elevated.jpg" width="640" height="540" loading="lazy" alt="建國高架道路的 3D 模型，橋面有車道線，旁邊是大安森林公園的樹">
+      <figcaption>建國高架道路，往北北東看，左下是大安森林公園。</figcaption>
+    </figure>
+    <figure>
+      <img src="img/street.jpg" width="640" height="540" loading="lazy" alt="敦化南路一帶街道的 3D 模型，有行人穿越道、行道樹和建物">
+      <figcaption>敦化南路一帶，往北北東看。</figcaption>
+    </figure>
+  </div>
+
+  <div class="text">
+    <h2>目前的限制</h2>
+    <ul>
+      <li>OpenStreetMap 在部分地區缺圖。臺北市 255,337 個門牌裡，5 m 內沒有任何建物輪廓的有 96,394 個（37.8%），萬華 64%、北投 62%、內湖 47%、大安 22%。</li>
+      <li>AI 推估在高樓的誤差很大，21 層以上平均差 13 層。</li>
+      <li>地標以外的建物是照輪廓和高度拉起的量體，沒有屋頂的形狀。</li>
+      <li>部分尺寸是估計值，例如高架道路的護欄和橋墩、沒有樹高資料的樹；程式裡都另外標出來。</li>
+    </ul>
+  </div>
+
+  <footer class="text">
+    <p>資料來源：臺北市建管處建照套繪圖與使用執照、內政部不動產成交案件實際資訊、OpenStreetMap（© OpenStreetMap 貢獻者）、內政部 20 m 數值地形模型、國土測繪中心國土利用現況調查與正射影像、通用版電子地圖、臺北市資料大平臺。</p>
+  </footer>
+</main>
+</body>
+</html>
