@@ -1178,19 +1178,35 @@ vec3 atmos_apply(vec3 c) {
   function toZ14(list) {
     const seen = new Set(), out = [];
     for (const t of list) {
-      const d = 14 - t.z;
-      if (d < 0) continue;
-      const n = 2 ** d;
-      for (let i = 0; i < n; i++) {
-        for (let j = 0; j < n; j++) {
-          const x = t.x * n + i, y = t.y * n + j, k = x + '/' + y;
-          if (seen.has(k) || !tileSet.has(k)) continue;
-          seen.add(k);
-          out.push({ x, y, z: 14 });
-        }
+      if (t.z > 14) continue;
+      // 這塊粗圖磚底下有東西的 z14 圖磚，直接從分好組的表查（不逐一猜 4 的 (14 - z) 次方個位置）
+      const g = z14Children(t.z).get(t.x + '/' + t.y);
+      if (!g) continue;
+      for (const c of g) {
+        const k = c.x * 65536 + c.y;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push({ x: c.x, y: c.y, z: 14 });
       }
     }
     return out;
+  }
+  // 有東西的 z14 圖磚依 x、y 排好，再依每個粗層級（z）分組："粗圖磚 x/y" → 底下的 z14 圖磚。每個層級只建一次，tileSet 換了才重建。
+  // 全市只有 77 塊有東西，粗到 z2 的圖磚展開也只查一次表；舊寫法會把 4 的 12 次方（約 1670 萬）個位置逐一組字串去問 tileSet，
+  // 畫面傾斜、看得到地平線時每一格都要做，拖曳縮放就卡住
+  let z14Src = null, z14Sorted = null, z14ByZ = {};
+  function z14Children(z) {
+    if (z14Src !== tileSet) {
+      z14Src = tileSet; z14ByZ = {};
+      z14Sorted = [...tileSet].map(k => { const [x, y] = k.split('/'); return { x: +x, y: +y }; }).sort((a, b) => a.x - b.x || a.y - b.y);
+    }
+    if (z14ByZ[z]) return z14ByZ[z];
+    const d = 14 - z, m = new Map();
+    for (const t of z14Sorted) {
+      const k = (t.x >> d) + '/' + (t.y >> d), a = m.get(k);
+      if (a) a.push(t); else m.set(k, [t]);
+    }
+    return (z14ByZ[z] = m);
   }
   class NearTileset extends deck._Tileset2D {
     getTileIndices(opts) {
